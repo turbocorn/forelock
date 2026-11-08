@@ -1,0 +1,38 @@
+# Dependencies and build output (including the archived web prototype)
+**/node_modules/
+**/dist/
+**/.build/
+**/build/
+**/.swiftpm/
+**/DerivedData/
+**/*.app/
+**/*.dSYM/
+**/*.tsbuildinfo
+
+# Local captures, diagnostics, Finder fixtures and user shelf data
+**/artifacts/
+**/test-results/
+**/playwright-report/
+**/shelf.json
+**/*.jsonl
+**/*.log
+**/xcuserdata/
+**/*.xcuserstate
+.DS_Store
+**/.DS_Store
+**/*.local
+**/.codex/
+**/.agents/
+
+# Credentials, signing material and local configuration
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.key
+**/*.mobileprovision
+**/credentials.json
+**/secrets.json
+**/native-messaging-host.local.json

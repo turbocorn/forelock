@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+*.tsbuildinfo
+artifacts/report/
+artifacts/test-results/
+
+# Native macOS build products
+native/.build/
+native/build/
+native/artifacts/finder-export/
+native/artifacts/0.3.1/*-frames/
