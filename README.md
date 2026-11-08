@@ -21,5 +21,6 @@ Apple Music uses public Apple Events addressed to an already running Music.app; 
 - [Chrome extension installation](docs/CHROME-INSTALL.md)
 - [Provider architecture and limitations](docs/MUSIC-PROVIDERS.md)
 - [Actual 0.4 verification matrix](chelka-lab/native/ACCEPTANCE.md)
+- [Desktop Yandex research for 0.4.1 — not released](docs/YANDEX-DESKTOP-RESEARCH.md)
 
 The stable geometry, hover policy and Finder drag code are retained. Music metadata is never substituted with demo tracks. No backend or private MediaRemote API is used.
