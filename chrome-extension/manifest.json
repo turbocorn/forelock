@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Forelock Music Bridge",
+  "version": "0.4.0",
+  "minimum_chrome_version": "120",
+  "description": "Playback metadata and controls for Yandex Music and Zvuk in Forelock.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArSkGuBuwesANYJCw16cu7ENezf1GZPM8xNAmsi/AgOoWaYTid0CanGhC+xhyA2dxbj9JHhHA8WQHqhIGXP9qxDKvXP+bcStO5PApUyNavSnIcOku6/gqdnN3ClJjkiZa3l3QxIIMlbxo+A0SVwzW91/WgJ0jUcCENYfUQuIB4eq/bdlmh4J6L1mVgv3H7HDICA8Q6SqLETqQWnxoLKtuULBWqi3Yral1KZIElImo39IUzOb8y9qMH7b3NHjgxu74itdjpi/bg9BPIjywtYBZgopmZVCinb669+EIqWueKUyC13IY+qdOTH95qgRlxtdL1aIDkjYTXjd9BOlCNGYhQwIDAQAB",
+  "permissions": [
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://music.yandex.ru/*",
+    "https://music.yandex.com/*",
+    "https://zvuk.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://music.yandex.ru/*",
+        "https://music.yandex.com/*",
+        "https://zvuk.com/*"
+      ],
+      "js": [
+        "page-player.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://music.yandex.ru/*",
+        "https://music.yandex.com/*",
+        "https://zvuk.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_title": "Forelock Music Bridge",
+    "default_popup": "popup.html"
+  }
+}

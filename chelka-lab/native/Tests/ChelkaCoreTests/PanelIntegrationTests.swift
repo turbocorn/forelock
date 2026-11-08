@@ -49,7 +49,7 @@ final class PanelIntegrationTests: XCTestCase {
                                          "neckHeight": geometry.neckHeight, "menuBarHeight": geometry.menuBarHeight, "headerHeight": geometry.headerHeight, "windowLevel": panel.level.rawValue,
                                          "statusBarLevel": NSWindow.Level.statusBar.rawValue, "measurements": measurements]
             let output = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("artifacts/0.3.2/window-audit.json")
+                .appendingPathComponent("artifacts/0.4/window-audit.json")
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output)
         }

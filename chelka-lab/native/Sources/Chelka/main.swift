@@ -17,11 +17,12 @@ import ChelkaCore
         let shelf = ShelfModel(root: root)
         model = NotchModel(shelf: shelf, preferences: preferences)
         windowController = NotchWindowController(model: model)
+        model.music.start()
         setupStatusItem()
         let mainMenu = NSMenu()
         let appMenu = NSMenu()
         let appMenuItem = NSMenuItem()
-        appMenu.addItem(item("Выйти из Чёлки", action: #selector(quit), key: "q"))
+        appMenu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
         NSApp.mainMenu = mainMenu
@@ -30,20 +31,20 @@ import ChelkaCore
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "Чёлка")
+            button.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "Forelock")
             button.image?.isTemplate = true
-            button.toolTip = "Чёлка — файловая полка"
+            button.toolTip = "Forelock — файловая полка"
         }
         let menu = NSMenu()
-        menu.addItem(item("Открыть Чёлку", action: #selector(openNotch), key: "o"))
+        menu.addItem(item("Открыть Forelock", action: #selector(openNotch), key: "o"))
         menu.addItem(item("Файловая полка", action: #selector(openShelf), key: "f"))
         menu.addItem(.separator())
         menu.addItem(item("Настройки…", action: #selector(openPreferences), key: ","))
         menu.addItem(item("Показать локальное хранилище", action: #selector(showStorage)))
         menu.addItem(.separator())
-        let version = NSMenuItem(title: "Чёлка 0.3.2", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.4", action: nil, keyEquivalent: "")
         version.isEnabled = false; menu.addItem(version)
-        menu.addItem(item("Выйти из Чёлки", action: #selector(quit), key: "q"))
+        menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
         statusItem.menu = menu
     }
     private func item(_ title: String, action: Selector, key: String = "") -> NSMenuItem {
@@ -57,7 +58,7 @@ import ChelkaCore
     @objc private func showStorage() { NSWorkspace.shared.open(model.shelf.repository.root) }
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { windowController?.stop() }
+    func applicationWillTerminate(_ notification: Notification) { model?.music.stop(); windowController?.stop() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { windowController?.open(); return true }
 }
 

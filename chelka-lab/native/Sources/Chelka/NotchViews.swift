@@ -36,8 +36,8 @@ struct NotchRootView: View {
             shape.fill(visibleSurface ? Color.black : Color.clear)
             if model.state == .idle && !model.magnetic {
                 Color.clear.accessibilityElement()
-                    .accessibilityLabel("Чёлка, свёрнута")
-                    .accessibilityAction(named: Text("Раскрыть Чёлку")) { model.open() }
+                    .accessibilityLabel("Forelock, свёрнута")
+                    .accessibilityAction(named: Text("Раскрыть Forelock")) { model.open() }
                     .accessibilityAction(named: Text("Показать Hover")) { model.open(.hover, reason: "accessibility-hover") }
             } else {
                 VStack(spacing: 0) {
@@ -49,7 +49,7 @@ struct NotchRootView: View {
                         MagneticView().frame(width: (model.geometry?.hoverWidth ?? 420) - 48)
                             .offset(x: model.attraction * 0.2).padding(.top, 12)
                     } else if model.state == .hover {
-                        HoverView(model: model, shelf: shelf)
+                        MusicHoverView(model: model, shelf: shelf, music: model.music)
                             .frame(width: (model.geometry?.hoverWidth ?? 420) - 40)
                             .padding(.top, 12)
                     } else {
@@ -84,7 +84,7 @@ struct NotchHeaderRow: View {
         let cameraWidth = layout?.camera.width ?? 0
         HStack(spacing: 0) {
             HStack(spacing: 16) {
-                Text("Чёлка").font(.system(size: 14, weight: .semibold))
+                Text("Forelock").font(.system(size: 14, weight: .semibold))
                 if expanded {
                     nav("Обзор", active: model.state == .overview) { model.open(.overview) }
                     nav("Полка", active: inShelf) { model.open(.shelf) }
@@ -108,7 +108,7 @@ struct NotchHeaderRow: View {
                 } else {
                     icon("arrow.up.left.and.arrow.down.right", label: "Раскрыть обзор") { model.open() }
                 }
-                icon("xmark", label: "Закрыть Чёлку") { model.close() }
+                icon("xmark", label: "Закрыть Forelock") { model.close() }
             }
             .fixedSize(horizontal: true, vertical: false)
             .padding(.trailing, expanded ? 16 : 12)
@@ -174,7 +174,7 @@ struct ExpandedView: View {
             Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1).padding(.top, 10).padding(.bottom, 20)
             Group {
                 switch model.state {
-                case .overview: OverviewView(model: model, shelf: shelf)
+                case .overview: MusicShelfOverview(model: model, shelf: shelf, music: model.music)
                 case .shelf: ShelfView(model: model, shelf: shelf)
                 case .preview(let id):
                     if let item = shelf.items.first(where: { $0.id == id }) { FilePreviewView(model: model, shelf: shelf, item: item) }

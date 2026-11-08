@@ -3,13 +3,14 @@
 <plist version="1.0"><dict>
 <key>CFBundleDevelopmentRegion</key><string>ru</string>
 <key>CFBundleLocalizations</key><array><string>ru</string><string>en</string></array>
-<key>CFBundleName</key><string>Чёлка</string>
-<key>CFBundleDisplayName</key><string>Чёлка</string>
+<key>CFBundleName</key><string>Forelock</string>
+<key>CFBundleDisplayName</key><string>Forelock</string>
 <key>CFBundleIdentifier</key><string>dev.chelka.lab</string>
-<key>CFBundleExecutable</key><string>Chelka</string>
+<key>CFBundleExecutable</key><string>Forelock</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.2</string>
-<key>CFBundleVersion</key><string>32</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>40</string>
+<key>NSAppleEventsUsageDescription</key><string>Forelock читает название, исполнителя, альбом, обложку и состояние воспроизведения в Music.app и управляет музыкой по вашим командам.</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>

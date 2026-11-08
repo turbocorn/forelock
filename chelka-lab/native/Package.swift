@@ -2,13 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "Chelka",
+    name: "Forelock",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "Chelka", targets: ["Chelka"])],
+    products: [.executable(name: "Forelock", targets: ["Chelka"]), .executable(name: "ForelockNativeHost", targets: ["ForelockNativeHost"])],
     targets: [
         .target(name: "ChelkaCore"),
-        .executableTarget(name: "Chelka", dependencies: ["ChelkaCore"]),
-        .testTarget(name: "ChelkaCoreTests", dependencies: ["ChelkaCore", "Chelka"])
+        .target(name: "ForelockMusic"),
+        .executableTarget(name: "ForelockNativeHost", dependencies: ["ForelockMusic"]),
+        .executableTarget(name: "Chelka", dependencies: ["ChelkaCore", "ForelockMusic"]),
+        .testTarget(name: "ChelkaCoreTests", dependencies: ["ChelkaCore", "Chelka", "ForelockMusic"])
     ],
     swiftLanguageModes: [.v5]
 )

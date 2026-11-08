@@ -15,6 +15,7 @@
 **/playwright-report/
 **/shelf.json
 **/*.jsonl
+**/*.sock
 **/*.log
 **/xcuserdata/
 **/*.xcuserstate

@@ -71,7 +71,7 @@ final class DropHostingView: NSView {
     init(model: NotchModel) {
         self.model = model
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "Чёлка"
+        panel.title = "Forelock"
         panel.identifier = NSUserInterfaceItemIdentifier("ChelkaNotchPanel")
         panel.isOpaque = false
         panel.backgroundColor = .clear

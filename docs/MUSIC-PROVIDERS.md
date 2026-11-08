@@ -1,0 +1,34 @@
+# Forelock 0.4 — MusicProvider
+
+`ForelockMusic` — независимый Swift-модуль без UI. `MusicProvider` возвращает `ProviderUpdate` и выполняет только команды, объявленные конкретным источником. `MusicSnapshot` содержит идентификатор, сервис, трек, исполнителя, альбом, обложку, состояние, длительность, позицию, набор команд и время достоверного обновления. Отсутствующие данные остаются `nil`, а не заменяются примером.
+
+`MusicCoordinator` опрашивает провайдеры независимо: ожидание Apple Events/разрешения не блокирует Chrome и главный поток. `MusicRegistry` предпочитает играющий источник, сохраняет текущий при одновременном воспроизведении и поддерживает явный выбор. После исчезновения выбранного источника выбор возвращается к доступному. Остановка, пустые метаданные, отключение native host или возраст данных 7 секунд удаляют источник. Позиция интерполируется только в состоянии playing и не дольше срока достоверности.
+
+## Apple Music
+
+Публичные Apple Events из установленного `/System/Applications/Music.app/Contents/Resources/Music.sdef`: чтение текущего трека, состояния, player position, artwork; play, pause, next, previous и установка позиции. Приложение определяется через `NSRunningApplication`; адресат — дескриптор уже существующего PID. Launch Services и AppleScript `tell application` для запуска не используются.
+
+`AEDeterminePermissionToAutomateTarget` проверяет доступ без запроса во время опроса. Системный запрос появляется только по кнопке пользователя «Разрешить Apple Music», вне главного потока. В bundle есть [NSAppleEventsUsageDescription](https://developer.apple.com/documentation/bundleresources/information-property-list/nsappleeventsusagedescription) и публичный entitlement `com.apple.security.automation.apple-events`. Отказ показывает путь к настройкам macOS; закрытое Music.app не открывается. Ошибка или остановленный плеер очищает снимок.
+
+## Chrome
+
+Статический MAIN-world content script читает публичный [Media Session API](https://www.w3.org/TR/mediasession/), свойства доступного HTMLAudioElement и DOM музыкального плеера. Media Session не даёт getter зарегистрированных action handlers или position state. Поэтому управляющие кнопки определяются отдельно; позиция берётся из audio либо числовых атрибутов ползунка Яндекс Музыки. Зарегистрированные JS-обработчики и сетевые запросы не перехватываются.
+
+Адаптер Яндекс Музыки ограничивает поиск контейнером плеера и требует единственную подходящую доступную кнопку. Адаптер Звука использует проверенный desktop DOM: один контейнер транспортных команд с ровно тремя непосредственными кнопками previous / toggle / next. При несовпадении структуры команды отключаются. Toggle зависит от достоверного playbackState. Изменение DOM сайта может потребовать обновления адаптера; это не официальный API музыкального сервиса.
+
+ISOLATED script передаёт только нормализованные музыкальные данные в service worker. Он проверяет отправителя, frame 0, URL разрешённого домена и привязывает источник к конкретному подключению вкладки/документа. Команда маршрутизируется обратно только этому подключению. Список посторонних вкладок не запрашивается.
+
+Транспорт — публичный [Chrome Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), отдельный Swift helper внутри .app, затем Unix socket приложения. Socket расположен в `~/Library/Application Support/Forelock/`, каталог 0700, socket 0600; проверяется UID peer. TCP/HTTP-сервера нет. Host автоматически переподключается к уже запущенному Forelock, но не запускает его; старые снимки не воспроизводятся при переподключении.
+
+Границы протокола: точный origin расширения `chrome-extension://ngdjfmcmoedjlgpahbolpfkhbbfmpeml/`, версия 1, framing UInt32 LE, максимум 64 KiB, ограниченные строки и идентификаторы, enum команд/состояний, конечные duration/position и максимальная длительность 7 суток. Native сторона ставит время получения сама. Допустимы только HTTPS origins `music.yandex.ru`, `music.yandex.com`, `zvuk.com`; artwork дополнительно ограничен CDN сервисов. Загрузка обложек использует ephemeral URLSession без cookies/credentials, проверяет redirects, MIME и размер до 2 MB. Защита не рассчитана на произвольный вредоносный процесс, уже работающий под тем же пользователем.
+
+Нет разрешений cookies/history/tabs/debugger/webRequest, захвата аудио или экрана. В репозитории есть только публичный ключ стабильного ID расширения. Секретов и пользовательских музыкальных данных нет.
+
+## Ограничения 0.4
+
+- Нативная Яндекс Музыка 5.126.1 (`ru.yandex.desktop.music`) не объявляет scripting dictionary/NSAppleScriptEnabled; в bundle не найдено sdef/aete. Надёжный публичный интерфейс получения метаданных и адресных команд в этом исследовании не установлен. Desktop provider не реализован. Видимые Accessibility-кнопки не заменяют такой API и потребовали бы отдельного разрешения.
+- Яндекс Музыка в Chrome проверена на `music.yandex.ru`; `music.yandex.com` разрешён, но отдельно не проверен. Прогресс доступен только для чтения, seek не включён без доступного seekable HTMLAudioElement.
+- Звук проверен на настоящих гостевых фрагментах. Полное воспроизведение после входа не проверено. Длительность и позиция в проверенном мини-плеере недоступны и не рисуются.
+- Private MediaRemote, обходы entitlement/SIP, инъекция в нативные процессы и глобальные медиаклавиши не используются.
+
+Фактические результаты команд и регрессии — в [ACCEPTANCE.md](../chelka-lab/native/ACCEPTANCE.md). Установка — [CHROME-INSTALL.md](CHROME-INSTALL.md).

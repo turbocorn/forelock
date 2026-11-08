@@ -10,16 +10,6 @@ enum NotchState: Equatable {
     var interactionMode: NotchInteractionMode { self == .idle ? .idle : self == .hover ? .hover : .expanded }
 }
 
-struct MusicSnapshot {
-    let title: String
-    let artist: String
-    let isPlaying: Bool
-    let elapsed: TimeInterval
-    let duration: TimeInterval
-}
-@MainActor protocol MusicProvider: AnyObject { var currentTrack: MusicSnapshot? { get } }
-@MainActor final class UnconnectedMusicProvider: MusicProvider { let currentTrack: MusicSnapshot? = nil }
-
 struct Activity: Identifiable { let id: UUID; let title: String; let detail: String }
 @MainActor protocol ActivityProvider: AnyObject { var activities: [Activity] { get } }
 /// Intentionally empty until a real source is connected.
@@ -39,7 +29,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
     let shelf: ShelfModel
     let preferences: Preferences
     let activity: any ActivityProvider
-    let music: any MusicProvider
+    let music: MusicCoordinator
     var onTransition: ((NotchState, NotchState, String) -> Void)?
     var requestKey: (() -> Void)?
 
@@ -47,7 +37,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
         self.shelf = shelf
         self.preferences = preferences
         self.activity = UnconnectedActivityProvider()
-        self.music = UnconnectedMusicProvider()
+        self.music = MusicCoordinator()
     }
 
     var headerHeight: CGFloat { geometry?.headerHeight ?? 38 }
@@ -127,7 +117,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
         picker.allowsMultipleSelection = true
         picker.title = "Добавить на полку"
         picker.prompt = "На полку"
-        picker.message = "Чёлка сохранит отдельные локальные копии. Оригиналы останутся на месте."
+        picker.message = "Forelock сохранит отдельные локальные копии. Оригиналы останутся на месте."
         picker.level = .modalPanel
         NSApp.activate(ignoringOtherApps: true)
         picker.begin { [weak self] response in
