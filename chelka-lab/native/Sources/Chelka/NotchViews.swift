@@ -345,7 +345,8 @@ struct PreferencesView: View {
                     Text(String(format: "%.2f с", preferences.hoverDelay)).font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).frame(width: 42)
                 }
                 preferenceToggle("Раскрывать в полноэкранном режиме", isOn: $preferences.allowFullscreen)
-                LiveSurfaceSettings(preferences:preferences)
+                LiveSurfaceSettings(preferences:preferences,devices:model.deviceEvents)
+                DeviceSettingsView(devices:model.deviceEvents)
             }.frame(maxWidth: .infinity) }.scrollIndicators(.visible)
             SurfaceDivider()
             VStack(alignment: .leading, spacing: 10) {

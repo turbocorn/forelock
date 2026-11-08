@@ -2,15 +2,15 @@ import Foundation
 import CoreGraphics
 
 public enum LiveSurfaceMode: String, Equatable, Sendable { case silent, ambient, stretch, peek, workspace }
-public enum LiveSurfaceSource: String, Sendable { case music, files, diagnostic }
+public enum LiveSurfaceSource: String, Sendable { case music, files, power, audio, devices, diagnostic }
 public enum LiveSurfacePriority: Int, Comparable, Sendable {
     case reaction = 1, information = 2, background = 3
     public static func <(a:Self,b:Self)->Bool { a.rawValue < b.rawValue }
 }
 public enum LiveSurfaceStrategy: Equatable, Sendable { case ambient, attention, stretch, peek }
-public enum LiveSurfaceCategory: Equatable, Sendable { case music, files, activities, devices }
+public enum LiveSurfaceCategory: Equatable, Sendable { case music, files, activities, devices, battery }
 public enum LiveSurfaceAction: Equatable, Sendable { case openShelf }
-public enum LiveSlotChoice: String, CaseIterable, Sendable { case auto, music, files, activities, devices, nothing }
+public enum LiveSlotChoice: String, CaseIterable, Sendable { case auto, music, files, activities, battery, devices, nothing }
 public struct LiveSurfaceContext: Equatable, Sendable {
     public var workspace = false, fullscreen = false, allowFullscreen = false, peekEngaged = false
     public init(workspace:Bool=false,fullscreen:Bool=false,allowFullscreen:Bool=false,peekEngaged:Bool=false) {
@@ -127,13 +127,18 @@ public struct LiveSurfaceEngine: Sendable {
         }
         let candidates=events.values.filter{!$0.transient}.sorted(by:precedes)
         var slots:[LiveSurfaceItem?]=[nil,nil],used=Set<String>()
+        func unused(_ e:LiveSurfaceEvent)->Bool {
+            !used.contains(e.id) && !slots.compactMap{$0}.contains { item in
+                item.category == e.category && [.music,.battery,.devices].contains(e.category)
+            }
+        }
         let choices=[left,right]
         // Explicit slots reserve their item before Auto fills unused slots.
         for i in 0..<2 where choices[i] != .auto && choices[i] != .nothing {
-            if let e=candidates.first(where:{matches($0.category,choices[i]) && !used.contains($0.id)}) {slots[i]=e.item;used.insert(e.id)}
+            if let e=candidates.first(where:{matches($0.category,choices[i]) && unused($0)}) {slots[i]=e.item;used.insert(e.id)}
         }
         for i in 0..<2 where choices[i] == .auto {
-            if let e=candidates.first(where:{$0.allowsAuto && !used.contains($0.id)}) {slots[i]=e.item;used.insert(e.id)}
+            if let e=candidates.first(where:{$0.allowsAuto && unused($0)}) {slots[i]=e.item;used.insert(e.id)}
         }
         result.left=slots[0];result.right=slots[1]
         result.mode=slots.contains(where:{$0 != nil}) ? .ambient : .silent
@@ -163,22 +168,26 @@ public struct LiveSurfaceEngine: Sendable {
     }
     private func precedes(_ a:LiveSurfaceEvent,_ b:LiveSurfaceEvent)->Bool {
         if a.priority != b.priority{return a.priority<b.priority}
+        if a.priority == .background,a.category != b.category {
+            if a.category == .music {return true}
+            if b.category == .music {return false}
+        }
         if a.createdAt != b.createdAt{return a.createdAt>b.createdAt}
         return a.id<b.id
     }
     private func matches(_ category:LiveSurfaceCategory,_ choice:LiveSlotChoice)->Bool {
-        switch(category,choice) {case(.music,.music),(.files,.files),(.activities,.activities),(.devices,.devices):return true;default:return false}
+        switch(category,choice) {case(.music,.music),(.files,.files),(.activities,.activities),(.devices,.devices),(.battery,.battery):return true;default:return false}
     }
 }
 
 public enum LiveSurfaceLayout {
-    public static func size(for mode:LiveSurfaceMode,geometry:NotchGeometry?)->CGSize {
+    public static func size(for mode:LiveSurfaceMode,geometry:NotchGeometry?,shoulderWidth:CGFloat?=nil)->CGSize {
         let idle=geometry?.idleSize ?? CGSize(width:220,height:38)
         let camera=(geometry?.hasNotch ?? true) ? (geometry?.neckWidth ?? 220)+24 : 0
         switch mode {
         case .silent,.workspace:return idle
-        case .ambient:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(idle.width,camera+104)),height:idle.height)
-        case .stretch:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(camera+180,520)),height:idle.height)
+        case .ambient:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(idle.width,camera+2*(shoulderWidth ?? 52))),height:idle.height)
+        case .stretch:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(160,camera+2*(shoulderWidth ?? 112))),height:idle.height)
         case .peek:return CGSize(width:geometry?.hoverWidth ?? 420,height:(geometry?.headerHeight ?? 38)+126)
         }
     }

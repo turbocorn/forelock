@@ -1,5 +1,7 @@
 # Live Surface Core — 0.5.3
 
+This document describes the accepted 0.5.3 core. Real device sources, enabled device/battery slots and content-driven widths were added in [0.5.4](DEVICES-LIVE-EVENTS.md). The current installed 0.5.4 is Release; the Debug-only examples below remain development tools.
+
 `feature/live-surface-core`, based on accepted 0.5.2 (`c865d33`). The existing NotchState still owns Hover, Overview, Shelf, Mini Shelf, Quick Look and Settings. Live Surface only selects a presentation while the workspace is closed. One NSPanel, the existing outline, screen-top anchor and interruptible SurfaceSpring remain responsible for geometry. Reduced Motion uses the existing immediate geometry path.
 
 ## Presentation

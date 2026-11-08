@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 import ChelkaCore
 import ForelockMusic
@@ -12,6 +13,9 @@ import ForelockMusic
     private var subscriptions = Set<AnyCancellable>()
     private var operationBefore: Set<UUID>?
     private var inventory = 0
+    private var deviceIndicators:[LiveSurfaceEvent]=[]
+    private(set) var shoulderWidth:CGFloat=52
+    var suppressesDeviceExpansion:Bool {context.workspace || (context.fullscreen && !context.allowFullscreen)}
     private let shelf: ShelfModel
     var performAction: ((LiveSurfaceAction)->Void)?
 
@@ -85,10 +89,26 @@ import ForelockMusic
         guard presentation.event?.id == id,let action=presentation.event?.action else{return}
         dismissCurrent();performAction?(action)
     }
+    func setDeviceIndicators(_ events:[LiveSurfaceEvent]) {
+        for e in deviceIndicators {engine.remove(source:e.source,key:e.key)}
+        deviceIndicators=events;refresh()
+    }
+    func clearDeviceEvents() {
+        deviceIndicators=[]
+        for source in [LiveSurfaceSource.power,.audio,.devices] {engine.remove(source:source)}
+        refresh()
+    }
+    func removeDeviceLowAttention() {
+        engine.remove(source:.power,key:"low");engine.remove(source:.devices,key:"low-combined");refresh()
+    }
     private func refresh(_ now:Date=Date()) {
         renewInventory(now)
+        for var e in deviceIndicators {
+            e.createdAt=now;e.expiresAt=now.addingTimeInterval(120)
+            engine.ingest(e,now:now,context:context)
+        }
         let next=engine.advance(now:now,context:context,left:left,right:right)
-        if next != presentation {presentation=next}
+        if next != presentation {shoulderWidth=LiveSurfaceMetrics.shoulderWidth(next);presentation=next}
         deadline=engine.nextDeadline(context:context)
     }
 #if DEBUG

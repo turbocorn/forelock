@@ -18,6 +18,7 @@ import ChelkaCore
         model = NotchModel(shelf: shelf, preferences: preferences)
         windowController = NotchWindowController(model: model)
         model.music.start(preferences: preferences)
+        model.deviceEvents.start()
         setupStatusItem()
         let mainMenu = NSMenu()
         let appMenu = NSMenu()
@@ -51,9 +52,9 @@ import ChelkaCore
 #endif
         menu.addItem(.separator())
 #if DEBUG
-        let version = NSMenuItem(title: "Forelock 0.5.3 · Debug", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.4 · Debug", action: nil, keyEquivalent: "")
 #else
-        let version = NSMenuItem(title: "Forelock 0.5.3 · эксперимент", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.4 · эксперимент", action: nil, keyEquivalent: "")
 #endif
         version.isEnabled = false; menu.addItem(version)
         menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
@@ -78,7 +79,7 @@ import ChelkaCore
     @objc private func showStorage() { NSWorkspace.shared.open(model.shelf.repository.root) }
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { model?.music.stop(); windowController?.stop() }
+    func applicationWillTerminate(_ notification: Notification) { model?.deviceEvents.stop(); model?.music.stop(); windowController?.stop() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { windowController?.open(); return true }
 }
 
