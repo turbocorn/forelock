@@ -42,7 +42,7 @@ import ChelkaCore
         menu.addItem(item("Настройки…", action: #selector(openPreferences), key: ","))
         menu.addItem(item("Показать локальное хранилище", action: #selector(showStorage)))
         menu.addItem(.separator())
-        let version = NSMenuItem(title: "Forelock 0.4.1 · эксперимент", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5 · эксперимент", action: nil, keyEquivalent: "")
         version.isEnabled = false; menu.addItem(version)
         menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
         statusItem.menu = menu

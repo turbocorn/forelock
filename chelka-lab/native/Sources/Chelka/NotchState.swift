@@ -11,6 +11,10 @@ enum NotchState: Equatable {
 }
 
 struct Activity: Identifiable { let id: UUID; let title: String; let detail: String }
+enum FileDropStatus: Equatable {
+    case ready(Int), copying(Int), complete(added: Int, attempted: Int)
+    var isReady: Bool { if case .ready = self { return true }; return false }
+}
 @MainActor protocol ActivityProvider: AnyObject { var activities: [Activity] { get } }
 /// Intentionally empty until a real source is connected.
 @MainActor final class UnconnectedActivityProvider: ActivityProvider { let activities: [Activity] = [] }
@@ -19,7 +23,8 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
     @Published private(set) var state: NotchState = .idle
     @Published var surfaceSize = CGSize(width: 236, height: 46)
     @Published var geometry: NotchGeometry?
-    @Published var magnetic = false
+    @Published private(set) var fileDrop: FileDropStatus?
+    var magnetic: Bool { fileDrop != nil }
     @Published var attraction: CGFloat = 0
     @Published var fullscreen = false
     @Published var isInteracting = false
@@ -32,6 +37,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
     let music: MusicCoordinator
     var onTransition: ((NotchState, NotchState, String) -> Void)?
     var requestKey: (() -> Void)?
+    private var dropFeedback: Task<Void, Never>?
 
     init(shelf: ShelfModel, preferences: Preferences) {
         self.shelf = shelf
@@ -47,7 +53,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
     var targetSize: CGSize {
         let top = headerHeight
         let compactWidth = geometry?.hoverWidth ?? 420
-        if magnetic { return CGSize(width: compactWidth + abs(attraction) * 0.3, height: top + 122) }
+        if magnetic { return FileDropLayout.surfaceSize(geometry) }
         switch state {
         case .idle: return geometry?.idleSize ?? CGSize(width: 220, height: 38)
         case .hover: return CGSize(width: compactWidth, height: top + 102)
@@ -65,8 +71,8 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
         if state.isOpen { requestKey?() }
     }
     @discardableResult func close(reason: String = "close-button") -> Bool {
-        guard !isInteracting && !draggingOut else { return false }
-        magnetic = false; attraction = 0
+        guard !isInteracting && !draggingOut && !magnetic else { return false }
+        attraction = 0
         transition(to: .idle, reason: reason)
         return true
     }
@@ -77,7 +83,7 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
         onTransition?(previous, next, reason)
     }
     func importFiles(_ urls: [URL], reason: String = "file-import") {
-        magnetic = false
+        guard !magnetic else { return }
         attraction = 0
         open(.shelf, reason: reason)
         Task {
@@ -85,6 +91,34 @@ struct Activity: Identifiable { let id: UUID; let title: String; let detail: Str
             await shelf.importFiles(urls)
             isInteracting = false
         }
+    }
+    func beginFileDrop(count: Int) {
+        guard count > 0, !isInteracting, !draggingOut, !shelf.loading else { return }
+        guard fileDrop != .ready(count) else { return }
+        dropFeedback?.cancel(); dropFeedback = nil
+        fileDrop = .ready(count)
+    }
+    func cancelFileDrop() {
+        guard fileDrop?.isReady == true else { return }
+        fileDrop = nil
+    }
+    /// Keep `state` intact: the temporary drop surface never navigates to Shelf
+    /// or takes key focus from Finder. The existing repository still owns copies.
+    @discardableResult func acceptFileDrop(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, fileDrop?.isReady == true, !isInteracting, !draggingOut, !shelf.loading else { return false }
+        fileDrop = .copying(urls.count)
+        isInteracting = true
+        let previousIDs = Set(shelf.items.map(\.id))
+        dropFeedback = Task { [weak self] in
+            guard let self else { return }
+            await self.shelf.importFiles(urls)
+            let added = self.shelf.items.filter { !previousIDs.contains($0.id) }.count
+            self.isInteracting = false
+            self.fileDrop = .complete(added: added, attempted: urls.count)
+            do { try await Task.sleep(for: .seconds(1.25)) } catch { return }
+            self.fileDrop = nil
+        }
+        return true
     }
     func saveCopy(of item: ShelfItem) {
         isInteracting = true

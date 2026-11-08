@@ -13,44 +13,6 @@ final class NotchPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-final class DropHostingView: NSView {
-    var accept: (([URL]) -> Void)?
-    var acceptsDrag: (() -> Bool)?
-    var dragChanged: ((Bool, Int) -> Void)?
-    override var isFlipped: Bool { true }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        registerForDraggedTypes([.fileURL])
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-    private func urls(_ info: NSDraggingInfo) -> [URL] {
-        guard acceptsDrag?() != false, info.draggingSourceOperationMask.contains(.copy) else { return [] }
-        return (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-    }
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard !urls(sender).isEmpty else { return [] }
-        dragChanged?(true, sender.draggingSequenceNumber)
-        return .copy
-    }
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard !urls(sender).isEmpty else { return [] }
-        dragChanged?(true, sender.draggingSequenceNumber)
-        return .copy
-    }
-    override func draggingExited(_ sender: NSDraggingInfo?) { if let sender { dragChanged?(false, sender.draggingSequenceNumber) } }
-    override func draggingEnded(_ sender: NSDraggingInfo) { dragChanged?(false, sender.draggingSequenceNumber) }
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { !urls(sender).isEmpty }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let files = urls(sender)
-        guard !files.isEmpty else { return false }
-        dragChanged?(false, sender.draggingSequenceNumber)
-        accept?(files)
-        return true
-    }
-    override func concludeDragOperation(_ sender: NSDraggingInfo?) { if let sender { dragChanged?(false, sender.draggingSequenceNumber) } }
-}
-
 @MainActor final class NotchWindowController {
     let panel: NotchPanel
     let model: NotchModel
@@ -63,6 +25,9 @@ final class DropHostingView: NSView {
     private var lastTick = ProcessInfo.processInfo.systemUptime
     private var pointerPolicy = NotchPointerPolicy()
     private var incomingDragSequence: Int?
+    private var dragProbe = FileDragProbe()
+    private var dragReleasedAt: Double?
+    private var wasMagnetic = false
     let diagnostics = InteractionDiagnostics()
     private var lastPointerZone: String?
     private var lastFullscreenCheck = 0.0
@@ -92,16 +57,32 @@ final class DropHostingView: NSView {
         let host = NSHostingView(rootView: NotchRootView(model: model, shelf: model.shelf, preferences: model.preferences))
         host.sizingOptions = []
         host.safeAreaRegions = []
-        host.translatesAutoresizingMaskIntoConstraints = false
+        host.autoresizingMask = []
         container.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: container.leadingAnchor), host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            host.topAnchor.constraint(equalTo: container.topAnchor), host.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
-        container.accept = { [weak model] urls in model?.importFiles(urls, reason: "native-file-drop") }
-        container.acceptsDrag = { [weak model] in model?.draggingOut == false && model?.isInteracting == false }
-        container.dragChanged = { [weak self] active, sequence in
-            self?.nativeFileDrag(active: active, sequence: sequence)
+        container.accept = { [weak self] urls, sequence in
+            guard let self, self.incomingDragSequence == sequence else { return false }
+            let accepted = self.model.acceptFileDrop(urls)
+            if accepted { self.record("native-file-drop-committed") }
+            return accepted
+        }
+        container.acceptsDrag = { [weak self] in
+            guard let self else { return false }
+            return !self.model.draggingOut && !self.model.isInteracting && !self.model.shelf.loading && !self.dragProbe.isRejected
+        }
+        container.dragEntered = { [weak self] sequence, count in self?.nativeFileDragEntered(sequence: sequence, count: count) }
+        container.dragExited = { [weak self] sequence in
+            // Keep the session and its surface while the user moves outside.
+            // AppKit's exit is not an end/cancel, including during a resize.
+            if self?.incomingDragSequence == sequence { self?.record("native-file-drag-outside") }
+        }
+        container.dragEnded = { [weak self] sequence in self?.nativeFileDragEnded(sequence: sequence) }
+        container.dragRejected = { [weak self] in
+            guard let self, self.incomingDragSequence == nil else { return }
+            self.dragProbe.rejectUntilMouseUp()
+        }
+        container.acceptsPoint = { [weak model] point in
+            guard let model, model.fileDrop?.isReady == true else { return false }
+            return FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight).contains(point)
         }
         panel.contentView = container
         model.requestKey = { [weak self] in self?.panel.makeKey() }
@@ -127,11 +108,15 @@ final class DropHostingView: NSView {
         panel.orderFrontRegardless()
     }
     func collapse(reason: String = "explicit-close") {
+        if model.fileDrop?.isReady == true {
+            cancelIncomingDrag(); record("file-drag-cancel-" + reason); return
+        }
         if !model.close(reason: reason) { record("close-blocked-" + reason) }
     }
     func stop() {
         record("controller-stop")
         timer?.invalidate()
+        cancelIncomingDrag()
         model.onTransition = nil
         if let globalMouse { NSEvent.removeMonitor(globalMouse) }
         if let localEvents { NSEvent.removeMonitor(localEvents) }
@@ -151,7 +136,7 @@ final class DropHostingView: NSView {
         geometry = next
         model.geometry = next
         if !model.state.isOpen { spring = SurfaceSpring(next.idleSize); model.surfaceSize = next.idleSize }
-        panel.setFrame(next.frame(for: spring.value), display: true)
+        applyWindowLayout()
         pointerPolicy.resetTimers()
         updateMouseRouting(at: NSEvent.mouseLocation)
         record("screen-reposition")
@@ -162,15 +147,20 @@ final class DropHostingView: NSView {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reposition(); self?.panel.orderFrontRegardless() }
         }
-        globalMouse = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved]) { [weak self] event in
+        globalMouse = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             guard let self else { return }
-            if event.type == .mouseMoved {
+            if event.type == .leftMouseDragged {
+                self.observeDraggingGesture()
+            } else if event.type == .leftMouseUp {
+                self.dragProbe.reset()
+                self.updateMouseRouting(at: NSEvent.mouseLocation)
+            } else if event.type == .mouseMoved {
                 self.updateMouseRouting(at: NSEvent.mouseLocation)
             } else {
                 self.mouseDown(at: NSEvent.mouseLocation)
             }
         }
-        localEvents = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved]) { [weak self] event in
+        localEvents = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .leftMouseUp]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown, event.keyCode == 53, event.window === self.panel {
                 self.collapse(reason: "escape"); return nil
@@ -178,6 +168,7 @@ final class DropHostingView: NSView {
             if event.type == .mouseMoved {
                 self.updateMouseRouting(at: NSEvent.mouseLocation)
             }
+            if event.type == .leftMouseUp { self.dragProbe.reset(); self.updateMouseRouting(at: NSEvent.mouseLocation) }
             if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
                 self.mouseDown(at: NSEvent.mouseLocation)
             }
@@ -186,10 +177,16 @@ final class DropHostingView: NSView {
     }
     private func regions(at point: CGPoint) -> NotchPointerRegions? {
         guard let geometry else { return nil }
-        return NotchPointerRegions(geometry: geometry, frame: panel.frame, pointer: point)
+        return NotchPointerRegions(geometry: geometry, frame: surfaceFrame, pointer: point)
+    }
+    private var surfaceFrame: CGRect {
+        guard let size = (panel.contentView as? DropHostingView)?.presentationSize else { return panel.frame }
+        return CGRect(x: panel.frame.midX - size.width / 2, y: panel.frame.maxY - size.height, width: size.width, height: size.height)
     }
     private func updateMouseRouting(at point: CGPoint) {
-        panel.ignoresMouseEvents = !(regions(at: point)?.acceptsMouse(in: model.state.interactionMode) ?? false)
+        let capture = (dragProbe.isArmed || incomingDragSequence != nil) && NSEvent.pressedMouseButtons & 1 != 0
+        let zone = regions(at: point)
+        panel.ignoresMouseEvents = !(capture || (model.magnetic && zone?.inControls == true) || (zone?.acceptsMouse(in: model.state.interactionMode) ?? false))
     }
     func mouseDown(at point: CGPoint) {
         record("mouse-down", pointer: point)
@@ -197,21 +194,52 @@ final class DropHostingView: NSView {
               regions(at: point)?.retainsHover != true else { return }
         collapse(reason: "outside-click")
     }
-    private func nativeFileDrag(active: Bool, sequence: Int) {
-        guard !model.draggingOut else { return }
-        if active {
-            let began = incomingDragSequence != sequence
-            incomingDragSequence = sequence
-            model.magnetic = true
-            pointerPolicy.resetTimers()
-            if began { record("native-file-drag-enter") }
-        } else if incomingDragSequence == sequence {
-            record("native-file-drag-exit")
-            incomingDragSequence = nil
-            model.magnetic = false
-            model.attraction = 0
-            pointerPolicy.resetTimers()
-        }
+    func observeDraggingGesture() {
+        guard !model.draggingOut, !model.isInteracting else { return }
+        dragProbe.observeDraggedMouse()
+    }
+    func sampleDragApproach(at point: CGPoint, leftPressed: Bool, now: Double) {
+        guard let geometry else { return }
+        dragProbe.sample(leftPressed: leftPressed, nearNotch: FileDropLayout.approachRegion(geometry).contains(point),
+                         blocked: model.draggingOut || model.isInteracting || NSApp.modalWindow != nil)
+        if !leftPressed {
+            if incomingDragSequence != nil {
+                if dragReleasedAt == nil { dragReleasedAt = now }
+                // Allow the native perform/conclude callbacks to finish first.
+                if now - (dragReleasedAt ?? now) > 0.15 { if let sequence = incomingDragSequence { nativeFileDragEnded(sequence: sequence) } }
+            }
+        } else { dragReleasedAt = nil }
+    }
+    func nativeFileDragEntered(sequence: Int, count: Int) {
+        guard !model.draggingOut, !model.isInteracting, !dragProbe.isRejected else { return }
+        let began = incomingDragSequence != sequence
+        incomingDragSequence = sequence
+        model.beginFileDrop(count: count)
+        pointerPolicy.resetTimers()
+        if began { record("native-file-drag-enter") }
+    }
+    func nativeFileDragEnded(sequence: Int) {
+        guard incomingDragSequence == sequence else { return }
+        record("native-file-drag-end")
+        incomingDragSequence = nil; dragReleasedAt = nil
+        dragProbe.rejectUntilMouseUp()
+        model.cancelFileDrop()
+        pointerPolicy.resetTimers()
+    }
+    private func cancelIncomingDrag() {
+        incomingDragSequence = nil; dragReleasedAt = nil
+        dragProbe.rejectUntilMouseUp()
+        model.cancelFileDrop(); pointerPolicy.resetTimers()
+    }
+    func applyWindowLayout() {
+        guard let geometry, let container = panel.contentView as? DropHostingView else { return }
+        let capturing = dragProbe.isArmed || incomingDragSequence != nil
+        let visual = geometry.frame(for: model.surfaceSize)
+        let frame = capturing ? visual.union(geometry.frame(for: FileDropLayout.captureSize(geometry))) : visual
+        let needsLayout = panel.frame != frame || container.presentationSize != (capturing ? model.surfaceSize : nil) || container.subviews.first?.frame.size != model.surfaceSize
+        container.presentationSize = capturing ? model.surfaceSize : nil
+        if panel.frame != frame { panel.setFrame(frame, display: true); panel.invalidateShadow() }
+        if needsLayout { container.needsLayout = true; container.layoutSubtreeIfNeeded() }
     }
     private func record(_ reason: String, pointer: CGPoint = NSEvent.mouseLocation, previous: NotchState? = nil) {
         let zone = regions(at: pointer)
@@ -220,6 +248,7 @@ final class DropHostingView: NSView {
             "pointer": NSStringFromPoint(pointer), "activeZone": zone.map { NSStringFromRect($0.activation) } ?? "",
             "inActivation": zone?.inActivation ?? false, "inSurface": zone?.inSurface ?? false, "inControls": zone?.inControls ?? false,
             "frame": NSStringFromRect(panel.frame), "targetSize": NSStringFromSize(model.targetSize),
+            "surfaceFrame": NSStringFromRect(surfaceFrame), "dragProbeArmed": dragProbe.isArmed,
             "hoverSince": pointerPolicy.hoverSince as Any? ?? NSNull(), "outsideSince": pointerPolicy.outsideSince as Any? ?? NSNull(),
             "suppressedUntilExit": pointerPolicy.suppressedUntilExit,
             "pressedButtons": NSEvent.pressedMouseButtons, "ignoresMouseEvents": panel.ignoresMouseEvents,
@@ -236,24 +265,23 @@ final class DropHostingView: NSView {
         let modalPresented = NSApp.modalWindow != nil || (model.isInteracting && !model.shelf.loading)
         let desiredLevel = modalPresented ? NSWindow.Level.floating : NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         if panel.level != desiredLevel { panel.level = desiredLevel }
-        if incomingDragSequence != nil {
-            model.attraction = model.reduceMotion ? 0 : min(18, max(-18, (pointer.x - geometry.anchor.x) * 0.08))
-        }
+        sampleDragApproach(at: pointer, leftPressed: NSEvent.pressedMouseButtons & 1 != 0, now: now)
+        if wasMagnetic && !model.magnetic { pointerPolicy.transitioned(to: model.state.interactionMode) }
+        wasMagnetic = model.magnetic
         if now - lastFullscreenCheck > 0.7 {
             lastFullscreenCheck = now
             model.fullscreen = frontmostIsFullscreen(geometry.screenFrame)
-            if model.fullscreen && !model.preferences.allowFullscreen && model.state == .hover { collapse(reason: "fullscreen-hover") }
+            if model.fullscreen && !model.preferences.allowFullscreen && model.state == .hover && !model.magnetic { collapse(reason: "fullscreen-hover") }
         }
         samplePointer(at: pointer, now: now, pressed: NSEvent.pressedMouseButtons != 0)
         let target = model.targetSize
         if model.reduceMotion {
-            if spring.value != target { spring = SurfaceSpring(target); model.surfaceSize = target; panel.setFrame(geometry.frame(for: target), display: true) }
+            if spring.value != target { spring = SurfaceSpring(target); model.surfaceSize = target }
         } else if spring.value != target || spring.velocity != .zero {
             _ = spring.step(toward: target, dt: dt)
             model.surfaceSize = spring.value
-            panel.setFrame(geometry.frame(for: spring.value), display: true)
-            panel.invalidateShadow()
         }
+        applyWindowLayout()
         updateMouseRouting(at: pointer)
     }
     func samplePointer(at pointer: CGPoint, now: Double, pressed: Bool) {
@@ -261,7 +289,7 @@ final class DropHostingView: NSView {
         let previousTimers = [pointerPolicy.hoverSince, pointerPolicy.outsideSince]
         let action = pointerPolicy.sample(mode: model.state.interactionMode, now: now,
                                           inActivation: zone.inActivation, retainsHover: zone.retainsHover, pressed: pressed,
-                                          suspended: model.isInteracting || model.draggingOut || incomingDragSequence != nil ||
+                                          suspended: model.isInteracting || model.draggingOut || model.magnetic || incomingDragSequence != nil ||
                                             (model.state == .idle && model.fullscreen && !model.preferences.allowFullscreen),
                                           hoverEnabled: model.preferences.hoverEnabled, hoverDelay: model.preferences.hoverDelay)
         let name = zone.inActivation ? "physical-notch" : zone.inSurface && model.state != .idle ? "surface" : "outside"

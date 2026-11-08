@@ -45,9 +45,10 @@ struct NotchRootView: View {
                     // so the camera exclusion stays fixed during an interrupted spring.
                     NotchHeaderRow(model: model, shelf: shelf)
                         .frame(width: model.surfaceSize.width, height: model.headerHeight)
-                    if model.magnetic {
-                        MagneticView().frame(width: (model.geometry?.hoverWidth ?? 420) - 48)
-                            .offset(x: model.attraction * 0.2).padding(.top, 12)
+                    if let status = model.fileDrop {
+                        let rect = FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight)
+                        MagneticView(status: status).frame(width: rect.width, height: rect.height)
+                            .padding(.top, 12)
                     } else if model.state == .hover {
                         MusicHoverView(model: model, shelf: shelf, music: model.music)
                             .frame(width: (model.geometry?.hoverWidth ?? 420) - 40)
@@ -97,7 +98,9 @@ struct NotchHeaderRow: View {
             Color.clear.frame(width: cameraWidth, height: model.headerHeight)
                 .allowsHitTesting(false).accessibilityHidden(true)
             HStack(spacing: 8) {
-                if expanded {
+                if model.magnetic {
+                    Text("Полка").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted)
+                } else if expanded {
                     if shelf.loading { ProgressView().controlSize(.small).accessibilityLabel("Копирование файлов") }
                     else if case .preview = model.state {
                         headerAction("Назад к полке", symbol: "arrow.left") { model.open(.shelf) }
@@ -108,7 +111,7 @@ struct NotchHeaderRow: View {
                 } else {
                     icon("arrow.up.left.and.arrow.down.right", label: "Раскрыть обзор") { model.open() }
                 }
-                icon("xmark", label: "Закрыть Forelock") { model.close() }
+                if !model.magnetic { icon("xmark", label: "Закрыть Forelock") { model.close() } }
             }
             .fixedSize(horizontal: true, vertical: false)
             .padding(.trailing, expanded ? 16 : 12)
@@ -344,15 +347,30 @@ struct PreferencesView: View {
 }
 
 struct MagneticView: View {
+    let status: FileDropStatus
+    private var title: String {
+        switch status {
+        case .ready: return "Отпустите файлы"
+        case .copying: return "Копирование на полку…"
+        case .complete(let added, _): return added > 0 ? "Добавлено: \(fileCount(added))" : "Не удалось добавить файлы"
+        }
+    }
+    private var detail: String {
+        switch status {
+        case .ready(let count): return "\(fileCount(count)) · Оригиналы останутся на месте"
+        case .copying(let count): return fileCount(count)
+        case .complete(let added, let attempted): return added == attempted ? "Копии сохранены на полке" : "Сохранено \(added) из \(attempted). Подробности — на полке."
+        }
+    }
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "arrow.down.to.line").font(.system(size: 23, weight: .light)).frame(width: 34)
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Оставьте файл на полке").font(.system(size: 15, weight: .medium))
-                Text("Сохранится локальная копия.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted)
-            }
-            Spacer()
-        }.frame(height: 82)
+        VStack(spacing: 9) {
+            if case .copying = status { ProgressView().controlSize(.small) }
+            Text(title).font(.system(size: 16, weight: .medium))
+            Text(detail).font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineLimit(2).multilineTextAlignment(.center)
+        }.padding(.horizontal, 16).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 5])) }
+            .accessibilityElement(children: .combine).accessibilityIdentifier("ForelockFileDrop")
     }
 }
 struct SmallIconButton: View {
