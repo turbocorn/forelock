@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ChelkaCore
+import Combine
 
 // One surface, no independent notification windows.
 enum NotchState: Equatable {
@@ -22,6 +23,7 @@ struct RecentFileDrop: Identifiable, Equatable {
     let attempted: Int
     let error: String?
 }
+private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
 @MainActor protocol ActivityProvider: AnyObject { var activities: [Activity] { get } }
 /// Intentionally empty until a real source is connected.
 @MainActor final class UnconnectedActivityProvider: ActivityProvider { let activities: [Activity] = [] }
@@ -32,6 +34,10 @@ struct RecentFileDrop: Identifiable, Equatable {
     @Published var geometry: NotchGeometry?
     @Published private(set) var fileDrop: FileDropStatus?
     @Published private(set) var recentDrop: RecentFileDrop?
+    @Published private(set) var selection = ShelfSelection()
+    @Published private(set) var selectionError: String?
+    @Published private(set) var selectionMessage: String?
+    @Published var shelfPointerInteracting = false
     var magnetic: Bool { fileDrop != nil }
     var isMiniShelf: Bool { state == .miniShelf && !magnetic }
     @Published var attraction: CGFloat = 0
@@ -46,6 +52,9 @@ struct RecentFileDrop: Identifiable, Equatable {
     let music: MusicCoordinator
     var onTransition: ((NotchState, NotchState, String) -> Void)?
     var requestKey: (() -> Void)?
+    var requestShelfFocus: (() -> Void)?
+    private var shelfChanges: AnyCancellable?
+    private var selectionContext: ShelfSelectionContext?
     private var dropImport: Task<Void, Never>?
     private var dropReturnState: NotchState = .idle
     private var previewReturnState: NotchState = .shelf
@@ -63,12 +72,25 @@ struct RecentFileDrop: Identifiable, Equatable {
     var recentItems: [ShelfItem] { (recentDrop?.itemIDs ?? []).compactMap { id in shelf.items.first { $0.id == id } } }
     var miniShelfItems: [ShelfItem] { Array(recentItems.prefix(recentItems.count > 4 ? 3 : 4)) }
     var miniShelfOverflow: Int { max(0, recentItems.count - miniShelfItems.count) }
+    var activeShelfItems: [ShelfItem] {
+        guard !magnetic else { return [] }
+        if state == .shelf { return shelf.items }
+        if isMiniShelf { return recentItems }
+        return []
+    }
+    var hasShelfSelection: Bool { !selection.ids.isEmpty && (state == .shelf || isMiniShelf) && !magnetic }
+    var canUseShelfKeyboard: Bool { !magnetic && (state == .shelf || isMiniShelf) }
 
     init(shelf: ShelfModel, preferences: Preferences) {
         self.shelf = shelf
         self.preferences = preferences
         self.activity = UnconnectedActivityProvider()
         self.music = MusicCoordinator()
+        shelfChanges = shelf.$items.sink { [weak self] items in
+            guard let self else { return }
+            var next = self.selection; next.reconcile(items.map(\.id))
+            if next != self.selection { self.selection = next }
+        }
     }
 
     var headerHeight: CGFloat { geometry?.headerHeight ?? 38 }
@@ -113,7 +135,60 @@ struct RecentFileDrop: Identifiable, Equatable {
         guard state != next else { return }
         let previous = state
         state = next
+        reconcileSelectionContext()
         onTransition?(previous, next, reason)
+    }
+    private func reconcileSelectionContext() {
+        if case .preview = state { return }
+        if state == .shelf { selectionContext = .full; selection.reconcile(shelf.items.map(\.id)) }
+        else if state == .miniShelf, let result = recentDrop {
+            let context = ShelfSelectionContext.recent(result.id)
+            if selectionContext != context { selection.clear() }
+            selectionContext = context; selection.reconcile(recentItems.map(\.id))
+        } else { selectionContext = nil; selection.clear() }
+        selectionError = nil; selectionMessage = nil
+        shelfPointerInteracting = false
+    }
+    func shelfClick(_ id: UUID, modifiers: NSEvent.ModifierFlags) {
+        guard canUseShelfKeyboard, !isInteracting, !draggingOut, !shelf.loading else { return }
+        let ordered = activeShelfItems.map(\.id)
+        guard ordered.contains(id) else { return }
+        selectionMessage = nil
+        if modifiers.contains(.shift), state == .shelf {
+            selection.range(to: id, ordered: ordered, additive: modifiers.contains(.command))
+        } else if modifiers.contains(.command) { selection.toggle(id, ordered: ordered) }
+        else if modifiers.contains(.shift) { selection.clear(); selection.toggle(id, ordered: ordered) }
+        else {
+            selection.plainClick(id)
+            if isMiniShelf { openRecentFile(id) } else { openPreview(id) }
+        }
+    }
+    func selectAllShelfFiles() {
+        guard canUseShelfKeyboard, !isInteracting, !draggingOut, !shelf.loading else { return }
+        selection.selectAll(activeShelfItems.map(\.id)); selectionMessage = nil
+    }
+    @discardableResult func clearShelfSelection() -> Bool {
+        guard hasShelfSelection, !draggingOut, !isInteracting else { return false }
+        selection.clear(); selectionError = nil; return true
+    }
+    func shelfDragItems(from id: UUID) -> [ShelfItem] {
+        guard !isInteracting, !draggingOut, !shelf.loading else { return [] }
+        let items = activeShelfItems
+        let ids = Set(selection.dragIDs(from: id, ordered: items.map(\.id)))
+        return items.filter { ids.contains($0.id) }
+    }
+    func deleteSelectedCopies() {
+        guard hasShelfSelection, !isInteracting, !draggingOut, !shelf.loading else { return }
+        let ids = selection.ids
+        isInteracting = true; selectionError = nil
+        Task {
+            let removed = await shelf.removeCopies(ids: ids)
+            selection.reconcile(activeShelfItems.map(\.id))
+            selectionError = shelf.error
+            selectionMessage = "Удалено: \(fileCount(removed.count))"
+            isInteracting = false
+            requestShelfFocus?()
+        }
     }
     func importFiles(_ urls: [URL], reason: String = "file-import") {
         guard !magnetic else { return }
@@ -157,9 +232,11 @@ struct RecentFileDrop: Identifiable, Equatable {
     func openRecentFile(_ id: UUID) {
         guard recentDrop?.itemIDs.contains(id) == true, shelf.items.contains(where: { $0.id == id }) else { return }
         previewReturnState = .miniShelf
+        selection.plainClick(id)
         open(.preview(id), reason: "recent-file-preview")
     }
     func openPreview(_ id: UUID) {
+        selection.plainClick(id)
         previewReturnState = .shelf; recentDrop = nil
         open(.preview(id))
     }

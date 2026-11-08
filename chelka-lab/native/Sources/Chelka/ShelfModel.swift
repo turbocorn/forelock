@@ -29,10 +29,24 @@ import UniformTypeIdentifiers
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
     }
     func remove(_ item: ShelfItem) {
-        Task {
-            do { try await repository.remove(item); items.removeAll { $0.id == item.id }; thumbnails[item.id] = nil }
-            catch { self.error = "Не удалось убрать файл: \(error.localizedDescription)" }
+        Task { await removeCopies(ids: [item.id]) }
+    }
+    /// Uses the existing serialized repository operation; only named copies are
+    /// removed. Failed IDs remain in the model and can remain selected for retry.
+    @discardableResult func removeCopies(ids: Set<UUID>) async -> [UUID] {
+        guard !loading else { return [] }
+        loading = true; error = nil
+        let targets = items.filter { ids.contains($0.id) }
+        var removed: [UUID] = [], failures: [String] = []
+        for item in targets {
+            do {
+                try await repository.remove(item)
+                items.removeAll { $0.id == item.id }; thumbnails[item.id] = nil; removed.append(item.id)
+            } catch { failures.append("\(item.name): \(error.localizedDescription)") }
         }
+        loading = false
+        if !failures.isEmpty { error = failures.joined(separator: "\n") }
+        return removed
     }
     func typeName(_ item: ShelfItem) -> String {
         UTType(item.typeIdentifier)?.localizedDescription ?? URL(fileURLWithPath: item.name).pathExtension.uppercased()

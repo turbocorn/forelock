@@ -266,12 +266,13 @@ struct ShelfView: View {
                             ForEach(shelf.items) { item in
                                 VStack(spacing: 6) {
                                     ZStack(alignment: .topTrailing) {
-                                        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item), open: { model.openPreview(item.id) }, dragChanged: { model.draggingOut = $0 })
+                                        SelectableShelfTile(model: model, shelf: shelf, item: item)
                                             .frame(height: 91)
                                         Button { shelf.remove(item) } label: {
                                             Image(systemName: "xmark").font(.system(size: 9, weight: .medium)).foregroundStyle(Color.chelkaMuted)
                                                 .frame(width: 25, height: 25).background(Color.black.opacity(0.85), in: Circle())
-                                        }.buttonStyle(.plain).accessibilityLabel("Удалить \(item.name) с полки").help("Удалить копию с полки. Оригинал останется на месте.")
+                                        }.buttonStyle(.plain).disabled(shelf.loading || model.isInteracting || model.draggingOut)
+                                            .accessibilityLabel("Удалить \(item.name) с полки").help("Удалить копию с полки. Оригинал останется на месте.")
                                     }
                                     Text(shelf.typeName(item)).font(.system(size: 10)).foregroundStyle(Color.chelkaMuted).lineLimit(1)
                                 }
@@ -282,13 +283,17 @@ struct ShelfView: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             SurfaceDivider()
             VStack(alignment: .leading, spacing: 12) {
-                Text(fileCount(shelf.items.count)).font(.system(size: 18, weight: .medium))
-                Text("Копии хранятся на этом Mac.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineSpacing(3)
-                Text("Перетащите файл в Finder,\nчтобы забрать копию.").font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                if model.hasShelfSelection { ShelfSelectionActions(model: model) }
+                else {
+                    Text(fileCount(shelf.items.count)).font(.system(size: 18, weight: .medium))
+                    Text("Копии хранятся на этом Mac.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineSpacing(3)
+                    Text("⌘ клик — выбрать.\nShift клик — диапазон.\nПотяните, чтобы забрать копии.").font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer(minLength: 0)
                 SurfaceButton("Добавить файлы", symbol: "plus") { model.chooseFiles() }.disabled(shelf.loading)
             }.frame(width: 180, alignment: .leading)
-        }
+        }.background(ShelfFocusRegion().accessibilityHidden(true))
+            .simultaneousGesture(TapGesture().onEnded { model.requestShelfFocus?() })
     }
 }
 
@@ -389,41 +394,87 @@ struct RecentFilesView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var shelf: ShelfModel
     private var tileWidth: CGFloat { max(64, min(110, (model.surfaceSize.width - 70) / 4)) }
+    private var resultError: String? { model.selectionError ?? model.recentDrop?.error }
+    private var rowHeight: CGFloat { model.hasShelfSelection && resultError != nil ? 76 : 88 }
     private var summary: String {
+        if let message = model.selectionMessage { return message }
         guard let result = model.recentDrop else { return "" }
         if result.itemIDs.isEmpty { return "Не удалось добавить файлы" }
+        if model.recentItems.count != result.itemIDs.count { return "На мини-полке: \(fileCount(model.recentItems.count))" }
         return result.itemIDs.count == result.attempted ? "Добавлено: \(fileCount(result.itemIDs.count))" : "Добавлено \(result.itemIDs.count) из \(result.attempted)"
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(summary).font(.system(size: 12, weight: .medium))
+            if model.hasShelfSelection { ShelfSelectionActions(model: model, compact: true) }
+            else { Text(summary).font(.system(size: 12, weight: .medium)) }
             if !model.miniShelfItems.isEmpty {
                 HStack(spacing: 10) {
                     ForEach(model.miniShelfItems) { item in
-                        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item),
-                                       open: { model.openRecentFile(item.id) }, dragChanged: { model.draggingOut = $0 })
-                            .frame(width: tileWidth, height: 88)
+                        SelectableShelfTile(model: model, shelf: shelf, item: item)
+                            .frame(width: tileWidth, height: rowHeight)
                     }
                     if model.miniShelfOverflow > 0 {
                         Button { model.open(.shelf, reason: "recent-overflow") } label: {
                             Text("+\(model.miniShelfOverflow)").font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(Color.chelkaMuted).frame(width: tileWidth, height: 88)
+                                .foregroundStyle(Color.chelkaMuted).frame(width: tileWidth, height: rowHeight)
                                 .contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("Ещё \(model.miniShelfOverflow). Все файлы")
                     }
                     if model.miniShelfItems.count < 4 && model.miniShelfOverflow == 0 { Spacer(minLength: 0).frame(maxWidth: .infinity) }
                 }
             }
-            if let error = model.recentDrop?.error {
+            if let error = resultError {
                 Text(error).font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
                     .lineLimit(model.miniShelfItems.isEmpty ? 5 : 2).fixedSize(horizontal: false, vertical: true)
                     .help(error).accessibilityLabel(error)
             } else {
-                Text("Нажмите для просмотра. Потяните, чтобы забрать.").font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+                Text(model.recentItems.isEmpty ? "Добавленные копии удалены с полки." : "Клик — просмотр. ⌘ клик — выбор. Потяните, чтобы забрать.")
+                    .font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(ShelfFocusRegion().accessibilityHidden(true))
+            .simultaneousGesture(TapGesture().onEnded { model.requestShelfFocus?() })
             .accessibilityIdentifier("ForelockRecentFiles")
     }
+}
+struct SelectableShelfTile: View {
+    @ObservedObject var model: NotchModel
+    @ObservedObject var shelf: ShelfModel
+    let item: ShelfItem
+    var body: some View {
+        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item),
+                       open: { model.shelfClick(item.id, modifiers: []) }, dragChanged: { model.draggingOut = $0 },
+                       selected: model.selection.ids.contains(item.id),
+                       click: { model.shelfClick(item.id, modifiers: $0) },
+                       dragEntries: { model.shelfDragItems(from: item.id).map { ShelfDragEntry(url: shelf.url(for: $0), image: shelf.image($0)) } },
+                       interactionChanged: { model.shelfPointerInteracting = $0 })
+    }
+}
+struct ShelfSelectionActions: View {
+    @ObservedObject var model: NotchModel
+    var compact = false
+    private var count: String { "Выбрано: \(model.selection.ids.count)" }
+    var body: some View {
+        Group {
+            if compact {
+                HStack(spacing: 12) {
+                    Text(count).font(.system(size: 11, weight: .medium))
+                    Spacer(minLength: 4)
+                    Button("Удалить копии", action: model.deleteSelectedCopies)
+                    Button("Снять") { clear() }.accessibilityLabel("Снять выделение")
+                }.font(.system(size: 11)).buttonStyle(.plain).frame(height: 28)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(count).font(.system(size: 16, weight: .medium))
+                    SurfaceButton("Удалить копии", symbol: "trash", action: model.deleteSelectedCopies)
+                    SurfaceButton("Снять выделение", symbol: "xmark") { clear() }
+                }
+            }
+        }.disabled(model.isInteracting || model.draggingOut || model.shelf.loading)
+            .help("Удаляются только выбранные копии Forelock. Оригиналы не затрагиваются.")
+            .accessibilityIdentifier("ForelockShelfSelection")
+    }
+    private func clear() { model.clearShelfSelection(); model.requestShelfFocus?() }
 }
 struct SmallIconButton: View {
     let symbol: String

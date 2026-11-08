@@ -1,6 +1,6 @@
-# Forelock 0.5.1 — File Drop 2.0
+# Forelock 0.5.2 — File Drop 2.0
 
-Механизм File Drop 2.0 сохранён из `feature/file-drop-2`. Текущая доработка результата — `feature/drop-mini-shelf`, версия .app 0.5.1 / 51. Предыдущая установленная 0.5.0 сохранена целиком локально в `chelka-lab/native/artifacts/rollback-0.5.0/Forelock.app`.
+Механизм File Drop 2.0 сохранён из `feature/file-drop-2`. Мини-полка принята в `feature/drop-mini-shelf` (0.5.1); текущий мультивыбор — в `feature/shelf-multi-selection`, версия .app 0.5.2 / 52. Принятая установленная 0.5.1 сохранена целиком локально в `chelka-lab/native/artifacts/rollback-0.5.1/Forelock.app`.
 
 ## Жест
 
@@ -29,4 +29,4 @@
 
 Результаты конкретной сборки — [ACCEPTANCE.md](../chelka-lab/native/ACCEPTANCE.md). Продуктовые направления — [PRODUCT-FOUNDATIONS.md](PRODUCT-FOUNDATIONS.md); Clipboard/Devices/Activities и новый Expanded в этой версии не реализуются.
 
-Для возврата к 0.5.0 завершите Forelock, выполните `./chelka-lab/native/scripts/rollback-0.5.0.sh` из корня репозитория и снова откройте `~/Applications/Forelock.app`. Скрипт проверяет версию и подпись копии, сохраняет текущее .app целиком в artifacts и не очищает полку.
+Для возврата к 0.5.1 завершите Forelock, выполните `./chelka-lab/native/scripts/rollback-0.5.1.sh` из корня репозитория и снова откройте `~/Applications/Forelock.app`. Скрипт проверяет версию и подпись копии, сохраняет текущее .app целиком в artifacts и не очищает полку.

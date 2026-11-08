@@ -86,7 +86,11 @@ final class NotchPanel: NSPanel {
             return FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight).contains(point)
         }
         panel.contentView = container
-        model.requestKey = { [weak self] in self?.panel.makeKey() }
+        model.requestKey = { [weak self] in
+            self?.panel.makeKey()
+            DispatchQueue.main.async { [weak self] in self?.focusShelf() }
+        }
+        model.requestShelfFocus = { [weak self] in self?.focusShelf() }
         model.onTransition = { [weak self] previous, next, reason in
             guard let self else { return }
             self.record(reason, previous: previous)
@@ -109,6 +113,7 @@ final class NotchPanel: NSPanel {
         panel.orderFrontRegardless()
     }
     func collapse(reason: String = "explicit-close") {
+        if reason == "escape", model.clearShelfSelection() { record("selection-escape"); return }
         if model.fileDrop?.isReady == true {
             cancelIncomingDrag(); record("file-drag-cancel-" + reason); return
         }
@@ -119,6 +124,7 @@ final class NotchPanel: NSPanel {
         timer?.invalidate()
         cancelIncomingDrag()
         model.onTransition = nil
+        model.requestShelfFocus = nil
         if let globalMouse { NSEvent.removeMonitor(globalMouse) }
         if let localEvents { NSEvent.removeMonitor(localEvents) }
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -164,8 +170,10 @@ final class NotchPanel: NSPanel {
         localEvents = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .leftMouseUp]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown, event.keyCode == 53, event.window === self.panel {
+                if self.model.draggingOut { return event }
                 self.collapse(reason: "escape"); return nil
             }
+            if self.handleShelfKeyDown(event) { return nil }
             if event.type == .mouseMoved {
                 self.updateMouseRouting(at: NSEvent.mouseLocation)
             }
@@ -175,6 +183,27 @@ final class NotchPanel: NSPanel {
             }
             return event
         }
+    }
+    func focusShelf() {
+        guard panel.isVisible, model.canUseShelfKeyboard, !model.isInteracting, !model.draggingOut, NSApp.modalWindow == nil else { return }
+        func marker(_ view: NSView) -> ShelfFocusView? {
+            if let view = view as? ShelfFocusView { return view }
+            return view.subviews.compactMap { marker($0) }.first
+        }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if let content = panel.contentView, let view = marker(content) {
+            panel.makeKey(); panel.makeFirstResponder(view)
+        }
+    }
+    @discardableResult func handleShelfKeyDown(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.window === panel, panel.isKeyWindow, model.canUseShelfKeyboard else { return false }
+        let responder = panel.firstResponder
+        guard responder is ShelfFocusView || (responder as? DraggableFileView)?.selectionEnabled == true else { return false }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags == .command, event.keyCode == 0 || event.charactersIgnoringModifiers?.lowercased() == "a" {
+            model.selectAllShelfFiles(); miniShelfPolicy = MiniShelfPointerPolicy(); return true
+        }
+        return false
     }
     private func regions(at point: CGPoint) -> NotchPointerRegions? {
         guard let geometry else { return nil }
@@ -289,7 +318,8 @@ final class NotchPanel: NSPanel {
         guard let zone = regions(at: pointer) else { return }
         if miniShelfPolicy.shouldDismiss(presentation: model.isMiniShelf ? model.recentDrop?.id : nil, now: now,
                                          inside: zone.retainsHover,
-                                         interacting: pressed || model.isInteracting || model.draggingOut || incomingDragSequence != nil) {
+                                         interacting: pressed || model.isInteracting || model.draggingOut || model.shelfPointerInteracting || incomingDragSequence != nil ||
+                                            (model.hasShelfSelection && panel.isKeyWindow && !NSEvent.modifierFlags.intersection([.command, .shift]).isEmpty)) {
             model.dismissMiniShelf()
             record("mini-shelf-exit-delay", pointer: pointer)
             return
