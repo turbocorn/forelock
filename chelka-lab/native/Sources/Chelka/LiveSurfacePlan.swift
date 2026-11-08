@@ -77,12 +77,12 @@ struct LiveSurfacePlan:Equatable {
         func ambient(_ item:LiveSurfaceItem?)->LiveCompactBlock? {
             guard let item else{return nil}
             let label:String
-            switch item.category {case .files,.battery:label=item.title;case .devices:label=name(item.title);default:label=""}
+            switch item.category {case .files,.battery,.accessory:label=item.title;case .devices:label=name(item.title);default:label=""}
             return LiveCompactBlock(symbol:item.symbol,title:label,caption:"",style:.ambient)
         }
         if p.mode == .ambient {plan.left=ambient(p.left);plan.right=ambient(p.right);plan.help=[p.left,p.right].compactMap{$0}.map{$0.title+". "+$0.detail}.joined(separator:"; ");return plan.finalized()}
         guard let e=p.event else{return plan.finalized()}
-        plan.help=e.title+". "+e.detail;plan.eventID=e.id;plan.action=e.action
+        plan.help=e.title+". "+e.detail+(e.accessoryBatterySummary.map{" · "+$0} ?? "");plan.eventID=e.id;plan.action=e.action
         if p.mode == .peek {plan.title=e.title;plan.detail=e.detail;return plan.finalized()}
         var subject=e.title,caption="",value=""
         if e.id.hasPrefix("audio:route") {subject=name(e.detail);caption="Аудиовыход"}
@@ -105,6 +105,9 @@ struct LiveSurfacePlan:Equatable {
                 plan.right=LiveCompactBlock(symbol:nil,title:device,caption:[value,state].filter{!$0.isEmpty}.joined(separator:" · "),style:.event)
             }
         } else {caption=e.detail}
+        if let battery=e.accessoryBatterySummary,(e.id=="audio:route" || e.id=="audio:connection") {
+            plan.right=LiveCompactBlock(symbol:nil,title:battery,caption:"",style:.event)
+        }
         if e.count>1 {caption += " ×\(e.count)"}
         plan.left=LiveCompactBlock(symbol:e.symbol,title:subject,caption:caption,style:.event)
         if plan.right == nil,!value.isEmpty {plan.right=LiveCompactBlock(symbol:nil,title:value,caption:"",style:.value)}

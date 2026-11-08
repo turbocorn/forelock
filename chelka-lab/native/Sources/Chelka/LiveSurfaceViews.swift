@@ -79,7 +79,7 @@ struct LiveSurfaceSettings: View {
             slot("Слева",value:$preferences.liveLeft)
             slot("Справа",value:$preferences.liveRight)
             Toggle("События в fullscreen",isOn:$preferences.allowLiveFullscreen).font(.system(size:11)).toggleStyle(.switch).controlSize(.small).tint(.white)
-            Text("Auto показывает активность. Батарею MacBook и текущий аудиовыход можно закрепить. Заряд AirPods и кейса недоступен.")
+            Text("Auto показывает активность. Батарею MacBook, аудиовыход и заряд выбранного аксессуара можно закрепить. Неизвестный заряд не занимает слот.")
                 .font(.system(size:10)).foregroundStyle(Color.chelkaMuted).fixedSize(horizontal:false,vertical:true)
         }
     }
@@ -137,6 +137,7 @@ private struct LiveSlotMenu: NSViewRepresentable {
         case .activities:return "Активности"
         case .battery:return "Батарея MacBook"
         case .devices:return "Текущий аудиовыход"
+        case .accessory:return "Заряд аксессуара"
         case .nothing:return "Ничего"
         }
     }

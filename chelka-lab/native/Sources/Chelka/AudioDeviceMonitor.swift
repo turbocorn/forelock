@@ -11,16 +11,18 @@ import ChelkaCore
     private var disconnects:[IOBluetoothUserNotification]=[]
     private var scheduled:DispatchWorkItem?
     private var generation=0
+    private var bluetoothAvailability:Any?
     private(set) var running=false
     private(set) var snapshot:AudioDevicesReading?
     private(set) var listenerFailures=0
     var changed:((AudioDevicesReading?)->Void)?
     func start() {
         guard !running else{return};running=true
+        bluetoothAvailability=NotificationCenter.default.addObserver(forName:BluetoothAvailability.changed,object:nil,queue:.main) { [weak self] _ in Task{@MainActor in self?.schedule()} }
+        BluetoothAvailability.shared.start()
         listen(AudioObjectID(kAudioObjectSystemObject),kAudioHardwarePropertyDevices)
         listen(AudioObjectID(kAudioObjectSystemObject),kAudioHardwarePropertyDefaultOutputDevice)
         guard listeners.count==2 else {changed?(nil);return}
-        connect=IOBluetoothDevice.register(forConnectNotifications:self,selector:#selector(bluetoothChanged(_:device:)))
         refresh()
     }
     private func listen(_ object:AudioObjectID,_ selector:AudioObjectPropertySelector,_ scope:AudioObjectPropertyScope=kAudioObjectPropertyScopeGlobal) {
@@ -32,7 +34,7 @@ import ChelkaCore
         else {listenerFailures+=1}
     }
     @objc private func bluetoothChanged(_ note:IOBluetoothUserNotification,device:IOBluetoothDevice) {
-        Task { @MainActor [weak self] in self?.schedule() }
+        Task { @MainActor [weak self] in guard let self,self.connect != nil else{return};self.schedule() }
     }
     private func schedule() {
         guard running else{return};scheduled?.cancel()
@@ -41,11 +43,15 @@ import ChelkaCore
     }
     func refresh() {
         guard running else{return};generation+=1;let ticket=generation
+        let needsConnect=connect == nil
         // Metadata only. No audio capture, scanning, pairing or connection requests.
         DispatchQueue.global(qos:.utility).async { [weak self] in
             let audio=Self.readOutputs()
             let observed=Self.readDeviceIDs() ?? []
-            let allowed = CBManager.authorization != .denied && CBManager.authorization != .restricted
+            let allowed = BluetoothAvailability.shared.ready
+            // The first public registration can wait for a CoreBluetooth
+            // main-run-loop callback. It must not run inside app launch on main.
+            let notification=needsConnect && allowed ? self.flatMap{IOBluetoothDevice.register(forConnectNotifications:$0,selector:#selector(AudioDeviceMonitor.bluetoothChanged(_:device:)))} : nil
             let paired=allowed ? IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] : nil
             let devices=paired?.filter{$0.deviceClassMajor == kBluetoothDeviceClassMajorAudio && $0.name?.isEmpty == false}
             let connected=devices?.filter{$0.isConnected()}.compactMap { device -> BluetoothAudioReading? in
@@ -53,7 +59,8 @@ import ChelkaCore
                 return BluetoothAudioReading(id:id,name:String(name.prefix(160)))
             }.sorted{$0.id<$1.id}
             Task { @MainActor [weak self] in
-                guard let self,self.running,self.generation == ticket else{return}
+                guard let self,self.running,self.generation == ticket else{notification?.unregister();return}
+                if let notification {self.connect?.unregister();self.connect=notification}
                 self.disconnects.forEach{$0.unregister()};self.disconnects=[]
                 for device in devices ?? [] where device.isConnected() {
                     if let note=device.register(forDisconnectNotification:self,selector:#selector(self.bluetoothChanged(_:device:))) {self.disconnects.append(note)}
@@ -76,6 +83,7 @@ import ChelkaCore
         }
     }
     func stop() {
+        if let bluetoothAvailability {NotificationCenter.default.removeObserver(bluetoothAvailability)};bluetoothAvailability=nil
         running=false;generation+=1;scheduled?.cancel();scheduled=nil
         for var listener in listeners {AudioObjectRemovePropertyListenerBlock(listener.object,&listener.address,.main,listener.block)}
         listeners=[];connect?.unregister();connect=nil;disconnects.forEach{$0.unregister()};disconnects=[];snapshot=nil

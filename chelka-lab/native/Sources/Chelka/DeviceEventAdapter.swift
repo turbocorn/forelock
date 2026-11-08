@@ -6,6 +6,10 @@ import ChelkaCore
     @Published private(set) var power:MacPowerReading?
     @Published private(set) var audio:AudioDevicesReading?
     @Published private(set) var outputError:String?
+    @Published private(set) var accessories:[AccessoryBatteryReading]=[]
+    @Published private(set) var accessoryMessage="Ожидание данных Bluetooth"
+    @Published private(set) var selectedAccessory=""
+    let accessoryMonitor=AccessoryBatteryMonitor()
     let powerMonitor=PowerSourceMonitor()
     let audioMonitor=AudioDeviceMonitor()
     private let live:LiveSurfaceCoordinator
@@ -18,11 +22,18 @@ import ChelkaCore
     private var baselineNextAudio=false
     private var explicitOutput:(id:String,expires:Date)?
     private var asleep=false
+    private weak var preferences:Preferences?
+    private var connectionForReaction:String?
     private(set) var running=false
-    init(live:LiveSurfaceCoordinator) {
+    init(live:LiveSurfaceCoordinator,preferences:Preferences?=nil) {
         self.live=live
+        self.preferences=preferences;selectedAccessory=preferences?.accessoryBatteryID ?? ""
         powerMonitor.changed={ [weak self] value in self?.received(power:value) }
         audioMonitor.changed={ [weak self] value in self?.received(audio:value) }
+        accessoryMonitor.changed={ [weak self] values in
+            guard let self,self.running,!self.asleep else{return}
+            self.accessories=values;self.accessoryMessage=BluetoothAvailability.shared.message;self.updateIndicators()
+        }
     }
     func start() {
         guard !running else{return};running=true;asleep=false
@@ -34,13 +45,13 @@ import ChelkaCore
         observers.append(center.addObserver(forName:NSWorkspace.didWakeNotification,object:nil,queue:.main) { [weak self] _ in
             MainActor.assumeIsolated{self?.didWake()}
         })
-        powerMonitor.start();audioMonitor.start();scheduleResync(after:2)
+        powerMonitor.start();audioMonitor.start();accessoryMonitor.start();scheduleResync(after:2)
     }
     func stop() {
         running=false;pending?.cancel();resync?.cancel();pending=nil;resync=nil;baselineNextAudio=false;explicitOutput=nil
         let center=NSWorkspace.shared.notificationCenter;observers.forEach(center.removeObserver);observers=[]
-        powerMonitor.stop();audioMonitor.stop();policy.reset()
-        power=nil;audio=nil;pendingSuppressed=false
+        powerMonitor.stop();audioMonitor.stop();accessoryMonitor.stop();policy.reset()
+        power=nil;audio=nil;accessories=[];connectionForReaction=nil;pendingSuppressed=false
         live.clearDeviceEvents()
     }
     private func received(power value:MacPowerReading?) {
@@ -49,6 +60,12 @@ import ChelkaCore
     }
     private func received(audio value:AudioDevicesReading?) {
         guard running,!asleep else{return}
+        if let connected=value?.bluetooth,Set(connected.map(\.id)) != Set((audio?.bluetooth ?? []).map(\.id)) {accessoryMonitor.requestRefresh()}
+        if let next=value?.bluetooth,let previous=audio?.bluetooth {
+            let added=next.filter{n in !previous.contains{$0.id==n.id}}
+            let removed=previous.filter{p in !next.contains{$0.id==p.id}}
+            if !added.isEmpty || !removed.isEmpty {connectionForReaction=added.count==1 && removed.isEmpty ? AccessoryIdentity.token(added[0].id) : nil}
+        }
         if value != audio {audio=value}
         if let explicit=explicitOutput {
             if explicit.expires<Date() {explicitOutput=nil}
@@ -82,12 +99,19 @@ import ChelkaCore
         let now=Date(),suppress=baseline || now<suppressedUntil
         let events=policy.update(power:power,audio:audio,now:now,suppress:suppress)
         for var event in events {
+            let accessoryID=event.id=="audio:route" ? audio?.current.flatMap{AccessoryIdentity.audioOutputToken($0.id)} :
+                event.id=="audio:connection" && event.title=="Устройство подключено" ? connectionForReaction : nil
+            if let id=accessoryID,
+               let reading=accessories.first(where:{$0.id==id}),reading.fresh(at:now) {
+                event.accessoryBatterySummary=reading.values.summary
+            }
             if pendingSuppressed {
                 guard event.priority == .reaction else{continue};event.strategy = .attention
             }
             live.ingest(event,now:now)
         }
         pendingSuppressed=false
+        connectionForReaction=nil
         if power?.low != true {live.removeDeviceLowAttention()}
     }
     private func updateIndicators() {
@@ -102,8 +126,13 @@ import ChelkaCore
                 createdAt:now,expiresAt:now.addingTimeInterval(120),title:current.name,detail:"Аудиовыход: "+current.name,
                 symbol:current.symbol,allowsAuto:false,replace:true))
         }
+        if let r=accessories.first(where:{$0.id==selectedAccessory}),r.fresh(at:now),let p=r.values.compactPercent {
+            events.append(LiveSurfaceEvent(source:.devices,key:"accessory-battery",priority:.background,strategy:.ambient,category:.accessory,
+                createdAt:now,expiresAt:r.expiresAt ?? now,title:"\(p)%",detail:r.help(at:now),symbol:r.symbol,allowsAuto:false,replace:true))
+        }
         live.setDeviceIndicators(events)
     }
+    func selectAccessory(_ id:String) {selectedAccessory=id;preferences?.accessoryBatteryID=id;updateIndicators()}
     func selectOutput(_ id:String) {
         explicitOutput=(id,Date().addingTimeInterval(5))
         outputError=audioMonitor.select(id)
@@ -111,11 +140,12 @@ import ChelkaCore
     }
     func willSleep() {
         guard running else{return};asleep=true;pending?.cancel();resync?.cancel();pending=nil;resync=nil
-        pendingSuppressed=false;baselineNextAudio=false;explicitOutput=nil;policy.reset();power=nil;audio=nil;live.clearDeviceEvents()
+        pendingSuppressed=false;baselineNextAudio=false;explicitOutput=nil;connectionForReaction=nil;policy.reset();power=nil;audio=nil
+        accessoryMonitor.stop();accessories=[];live.clearDeviceEvents()
     }
     func didWake() {
         guard running else{return};asleep=false;policy.reset();pendingSuppressed=false
         suppressedUntil=Date().addingTimeInterval(3)
-        powerMonitor.refresh();audioMonitor.refresh();scheduleResync(after:3)
+        powerMonitor.refresh();audioMonitor.refresh();accessoryMonitor.start();scheduleResync(after:3)
     }
 }

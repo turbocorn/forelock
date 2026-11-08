@@ -8,9 +8,9 @@ public enum LiveSurfacePriority: Int, Comparable, Sendable {
     public static func <(a:Self,b:Self)->Bool { a.rawValue < b.rawValue }
 }
 public enum LiveSurfaceStrategy: Equatable, Sendable { case ambient, attention, stretch, peek }
-public enum LiveSurfaceCategory: Equatable, Sendable { case music, files, activities, devices, battery }
+public enum LiveSurfaceCategory: Equatable, Sendable { case music, files, activities, devices, battery, accessory }
 public enum LiveSurfaceAction: Equatable, Sendable { case openShelf }
-public enum LiveSlotChoice: String, CaseIterable, Sendable { case auto, music, files, activities, battery, devices, nothing }
+public enum LiveSlotChoice: String, CaseIterable, Sendable { case auto, music, files, activities, battery, devices, accessory, nothing }
 public struct LiveSurfaceContext: Equatable, Sendable {
     public var workspace = false, fullscreen = false, allowFullscreen = false, peekEngaged = false
     public init(workspace:Bool=false,fullscreen:Bool=false,allowFullscreen:Bool=false,peekEngaged:Bool=false) {
@@ -34,6 +34,7 @@ public struct LiveSurfaceEvent: Equatable, Sendable {
     public var allowsAuto: Bool
     public var replace: Bool
     public var handledByWorkspace: Bool
+    public var accessoryBatterySummary:String?
     public var id: String { source.rawValue + ":" + key }
     public init(source:LiveSurfaceSource,key:String,priority:LiveSurfacePriority,strategy:LiveSurfaceStrategy,category:LiveSurfaceCategory,
                 createdAt:Date,expiresAt:Date,title:String,detail:String="",symbol:String,count:Int=1,action:LiveSurfaceAction?=nil,
@@ -43,7 +44,7 @@ public struct LiveSurfaceEvent: Equatable, Sendable {
         self.count=count;self.action=action;self.allowsAuto=allowsAuto;self.replace=replace;self.handledByWorkspace=handledByWorkspace
     }
     var transient: Bool { strategy == .stretch || strategy == .peek }
-    var item: LiveSurfaceItem { LiveSurfaceItem(id:id,category:category,title:title,detail:detail,symbol:symbol,count:count,action:action,attention:priority == .reaction) }
+    var item: LiveSurfaceItem { LiveSurfaceItem(id:id,category:category,title:title,detail:detail,symbol:symbol,count:count,action:action,attention:priority == .reaction,accessoryBatterySummary:accessoryBatterySummary) }
 }
 /// UI payload deliberately excludes clocks and playback progress. Renewing a
 /// trusted heartbeat does not redraw an otherwise unchanged static indicator.
@@ -56,6 +57,7 @@ public struct LiveSurfaceItem: Equatable, Sendable {
     public let count:Int
     public let action:LiveSurfaceAction?
     public let attention:Bool
+    public let accessoryBatterySummary:String?
 }
 public struct LiveSurfacePresentation: Equatable, Sendable {
     public var mode:LiveSurfaceMode = .silent
@@ -84,7 +86,8 @@ public struct LiveSurfaceEngine: Sendable {
         prune(now)
         var e=incoming
         guard !e.key.isEmpty,e.key.count<=128,e.title.count<=128,e.detail.count<=512,e.symbol.count<=64,
-              e.createdAt <= now.addingTimeInterval(1),e.expiresAt>now,e.expiresAt>e.createdAt else { return }
+              e.createdAt <= now.addingTimeInterval(1),e.expiresAt>now,e.expiresAt>e.createdAt,
+              (e.accessoryBatterySummary?.count ?? 0)<=128 else { return }
         e.expiresAt=min(e.expiresAt,e.createdAt.addingTimeInterval(120));e.count=min(999,max(1,e.count))
         guard e.expiresAt>now else { return }
         if e.handledByWorkspace {
@@ -176,7 +179,7 @@ public struct LiveSurfaceEngine: Sendable {
         return a.id<b.id
     }
     private func matches(_ category:LiveSurfaceCategory,_ choice:LiveSlotChoice)->Bool {
-        switch(category,choice) {case(.music,.music),(.files,.files),(.activities,.activities),(.devices,.devices),(.battery,.battery):return true;default:return false}
+        switch(category,choice) {case(.music,.music),(.files,.files),(.activities,.activities),(.devices,.devices),(.battery,.battery),(.accessory,.accessory):return true;default:return false}
     }
 }
 

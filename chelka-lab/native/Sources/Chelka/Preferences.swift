@@ -12,6 +12,7 @@ import ChelkaCore
     @Published var liveLeft: LiveSlotChoice { didSet { defaults.set(liveLeft.rawValue, forKey: "liveLeft") } }
     @Published var liveRight: LiveSlotChoice { didSet { defaults.set(liveRight.rawValue, forKey: "liveRight") } }
     @Published var allowLiveFullscreen: Bool { didSet { defaults.set(allowLiveFullscreen, forKey: "allowLiveFullscreen") } }
+    @Published var accessoryBatteryID:String {didSet{defaults.set(accessoryBatteryID,forKey:"accessoryBatteryID")}}
     @Published private(set) var launchAtLogin = false
     @Published var loginMessage: String?
     private let defaults: UserDefaults
@@ -26,6 +27,7 @@ import ChelkaCore
         liveLeft = LiveSlotChoice(rawValue: defaults.string(forKey: "liveLeft") ?? "") ?? .auto
         liveRight = LiveSlotChoice(rawValue: defaults.string(forKey: "liveRight") ?? "") ?? .auto
         allowLiveFullscreen = defaults.bool(forKey: "allowLiveFullscreen")
+        accessoryBatteryID = defaults.string(forKey:"accessoryBatteryID") ?? ""
         refreshLoginStatus()
     }
 

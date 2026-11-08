@@ -202,6 +202,7 @@ struct MusicShelfOverview: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var shelf: ShelfModel
     @ObservedObject var music: MusicCoordinator
+    @ObservedObject var devices:DeviceEventAdapter
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
             MusicModule(music: music).frame(width: 320)
@@ -225,8 +226,9 @@ struct MusicShelfOverview: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    if devices.accessories.isEmpty {Spacer(minLength:0)}
                 }
+                AccessoryBatteryList(devices:devices,compact:true)
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }

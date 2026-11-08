@@ -21,6 +21,7 @@ struct DeviceSettingsView:View {
             if let error=devices.outputError {Text(error).font(.system(size:10)).foregroundStyle(Color.chelkaMuted).lineLimit(3)}
             Text("Выход для основного аудио macOS. Подключение Bluetooth и выбор выхода — разные события.")
                 .font(.system(size:10)).foregroundStyle(Color.chelkaMuted).fixedSize(horizontal:false,vertical:true)
+            AccessoryBatterySettings(devices:devices)
         }
     }
 }

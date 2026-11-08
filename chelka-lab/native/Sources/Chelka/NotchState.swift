@@ -94,7 +94,7 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
         self.activity = UnconnectedActivityProvider()
         self.music = MusicCoordinator()
         self.liveSurface = LiveSurfaceCoordinator(music: music, shelf: shelf, preferences: preferences)
-        self.deviceEvents = DeviceEventAdapter(live:liveSurface)
+        self.deviceEvents = DeviceEventAdapter(live:liveSurface,preferences:preferences)
         liveSurface.performAction = { [weak self] action in
             switch action { case .openShelf: self?.open(.shelf, reason: "live-surface-action") }
         }

@@ -203,7 +203,7 @@ struct ExpandedView: View {
             Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1).padding(.top, 10).padding(.bottom, 20)
             Group {
                 switch model.state {
-                case .overview: MusicShelfOverview(model: model, shelf: shelf, music: model.music)
+                case .overview: MusicShelfOverview(model: model, shelf: shelf, music: model.music,devices:model.deviceEvents)
                 case .shelf: ShelfView(model: model, shelf: shelf)
                 case .preview(let id):
                     if let item = shelf.items.first(where: { $0.id == id }) { FilePreviewView(model: model, shelf: shelf, item: item) }
