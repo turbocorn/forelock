@@ -1,9 +1,9 @@
 import Foundation
 
 public enum MusicService: String, Codable, CaseIterable, Sendable {
-    case appleMusic, yandexChrome, zvukChrome
+    case appleMusic, yandexDesktop, yandexChrome, zvukChrome
     public var name: String {
-        switch self { case .appleMusic: return "Apple Music"; case .yandexChrome: return "Яндекс Музыка · Chrome"; case .zvukChrome: return "Звук · Chrome" }
+        switch self { case .appleMusic: return "Apple Music"; case .yandexDesktop: return "Яндекс Музыка"; case .yandexChrome: return "Яндекс Музыка · Chrome"; case .zvukChrome: return "Звук · Chrome" }
     }
 }
 public enum PlaybackState: String, Codable, Sendable { case playing, paused, stopped }
@@ -23,11 +23,16 @@ public struct MusicSnapshot: Codable, Equatable, Sendable, Identifiable {
     public let position: Double?
     public let commands: Set<MusicCommand>
     public let updatedAt: Date
+    public let commandGeneration: String?
     public init(id: String, service: MusicService, title: String, artist: String, album: String, artworkURL: URL? = nil, artworkData: Data? = nil,
-                state: PlaybackState, duration: Double?, position: Double?, commands: Set<MusicCommand>, updatedAt: Date = Date()) {
+                state: PlaybackState, duration: Double?, position: Double?, commands: Set<MusicCommand>, updatedAt: Date = Date(), commandGeneration: String? = nil) {
         self.id = id; self.service = service; self.title = title; self.artist = artist; self.album = album
         self.artworkURL = artworkURL; self.artworkData = artworkData; self.state = state
-        self.duration = duration; self.position = position; self.commands = commands; self.updatedAt = updatedAt
+        self.duration = duration; self.position = position; self.commands = commands; self.updatedAt = updatedAt; self.commandGeneration = commandGeneration
+    }
+    public func withCommands(_ commands: Set<MusicCommand>) -> MusicSnapshot {
+        MusicSnapshot(id: id, service: service, title: title, artist: artist, album: album, artworkURL: artworkURL, artworkData: artworkData,
+                      state: state, duration: duration, position: position, commands: commands, updatedAt: updatedAt, commandGeneration: commandGeneration)
     }
     public func position(at date: Date) -> Double? {
         guard let position else { return nil }
@@ -48,6 +53,12 @@ public protocol MusicProvider: Sendable {
     var providerID: String { get }
     func poll() async -> ProviderUpdate
     func perform(_ command: MusicCommand, sourceID: String, position: Double?) async throws
+    func perform(_ command: MusicCommand, snapshot: MusicSnapshot, position: Double?) async throws
+}
+public extension MusicProvider {
+    func perform(_ command: MusicCommand, snapshot: MusicSnapshot, position: Double?) async throws {
+        try await perform(command, sourceID: snapshot.id, position: position)
+    }
 }
 
 /// Selection stays stable when two sources play. Explicit choice is visible in

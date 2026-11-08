@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ForelockMusic
+import CryptoKit
 
 private final class ArtworkRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -13,7 +14,7 @@ struct MusicArtwork: View {
     let snapshot: MusicSnapshot
     let size: CGFloat
     @State private var image: NSImage?
-    private var key: String { snapshot.title + snapshot.artist + (snapshot.artworkURL?.absoluteString ?? "") + String(snapshot.artworkData?.count ?? 0) }
+    private var key: String { snapshot.title + snapshot.artist + (snapshot.artworkURL?.absoluteString ?? "") + (snapshot.artworkData.map { SHA256.hash(data: $0).description } ?? "") }
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
@@ -61,7 +62,7 @@ struct MusicTransport: View {
                 .foregroundStyle(Color.white.opacity(enabled ? 0.95 : 0.22)).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(!enabled).accessibilityLabel(label)
             .accessibilityIdentifier("Music-" + command.rawValue)
-            .help(enabled ? label : "Команда недоступна у этого плеера")
+            .help(music.selected?.service == .yandexDesktop ? music.yandexControlNotice : (enabled ? label : "Команда недоступна у этого плеера"))
     }
 }
 
@@ -71,6 +72,10 @@ struct MusicSourcePicker: View {
         HStack(spacing: 2) {
             Text(music.selected?.service.name ?? "Источник")
                 .lineLimit(1).font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+            if music.selected?.service == .yandexDesktop {
+                Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+                    .help(music.yandexControlNotice).accessibilityLabel("Экспериментальный системный плеер. " + music.yandexControlNotice)
+            }
             Menu {
             Button(music.registry.manualID == nil ? "✓ Автоматически" : "Автоматически") { music.select(nil) }
             ForEach(music.sources) { source in
@@ -137,7 +142,12 @@ struct MusicModule: View {
                     MusicProgress(music: music, snapshot: snapshot, duration: duration).id(snapshot.id + snapshot.title)
                 }
                 HStack { MusicSourcePicker(music: music); Spacer(minLength: 4)
-                    Text(snapshot.state == .playing ? "Играет" : "Пауза").font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(snapshot.state == .playing ? "Играет" : "Пауза").font(.system(size: 10))
+                        if snapshot.service == .yandexDesktop {
+                            Text(music.yandexConflicts ? "Управление заблокировано" : "Возможна смена плеера").font(.system(size: 9)).help(music.yandexControlNotice)
+                        }
+                    }.foregroundStyle(Color.chelkaMuted)
                 }
             } else {
                 Text("Музыка").font(.system(size: 23, weight: .medium)).tracking(-0.5)
@@ -146,8 +156,11 @@ struct MusicModule: View {
                     SurfaceButton("Разрешить Apple Music") { music.authorizeAppleMusic() }.disabled(music.busy)
                 } else if music.appleState == .permissionDenied {
                     Text("Доступ к Music.app отклонён. Разрешение можно изменить в настройках macOS → Конфиденциальность → Автоматизация.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted)
+                } else if music.yandexEnabled, music.updates["yandex-desktop"]?.state == .failed {
+                    Text(music.updates["yandex-desktop"]?.detail ?? "MediaRemote недоступен").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineLimit(3)
+                    Text("Эксперимент можно выключить и включить в настройках.").font(.system(size: 11)).foregroundStyle(Color.chelkaMuted)
                 } else {
-                    Text("Включите трек в Music.app или в музыкальной вкладке Chrome.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineSpacing(3)
+                    Text("Включите трек в Яндекс Музыке, Music.app или музыкальной вкладке Chrome.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted).lineSpacing(3)
                     Text("Для Chrome нужен Forelock Music Bridge.").font(.system(size: 11)).foregroundStyle(Color.chelkaMuted)
                 }
                 Spacer(minLength: 0)

@@ -320,10 +320,15 @@ struct PreferencesView: View {
                 Spacer()
             }.frame(maxWidth: .infinity)
             SurfaceDivider()
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Приложение").font(.system(size: 17, weight: .medium))
                 preferenceToggle("Уменьшить движение", isOn: $preferences.reduceMotion)
                 preferenceToggle("Запускать при входе", isOn: Binding(get: { preferences.launchAtLogin }, set: { preferences.setLaunchAtLogin($0) }))
+                VStack(alignment: .leading, spacing: 5) {
+                    preferenceToggle("Яндекс: MediaRemote (эксперимент)", isOn: $preferences.experimentalYandexEnabled)
+                    Text("Только локальная проверка. Команды идут системному плееру; проверка источника не атомарна.")
+                        .font(.system(size: 10)).foregroundStyle(Color.chelkaMuted).lineLimit(3)
+                }
                 if let message = preferences.loginMessage { Text(message).font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).lineLimit(3) }
                 Spacer()
             }.frame(maxWidth: .infinity)

@@ -8,6 +8,8 @@
 **/*.app/
 **/*.dSYM/
 **/*.tsbuildinfo
+**/__pycache__/
+**/*.pyc
 
 # Local captures, diagnostics, Finder fixtures and user shelf data
 **/artifacts/

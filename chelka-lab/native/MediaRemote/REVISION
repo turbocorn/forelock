@@ -1,0 +1,5 @@
+upstream: https://github.com/ungive/mediaremote-adapter
+revision: 0e82bf1c44ec39554fbfc402ec88a48c6ae2a0fd
+license: BSD-3-Clause (../Vendor/MediaRemoteAdapter/LICENSE)
+Upstream sources are unmodified. ForelockHost.m and the Perl entrypoint are local additions.
+Local experimental use only; private Apple MediaRemote API, global command routing.

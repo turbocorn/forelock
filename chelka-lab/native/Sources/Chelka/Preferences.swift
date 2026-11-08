@@ -7,6 +7,7 @@ import SwiftUI
     @Published var hoverDelay: Double { didSet { defaults.set(hoverDelay, forKey: "hoverDelay") } }
     @Published var allowFullscreen: Bool { didSet { defaults.set(allowFullscreen, forKey: "allowFullscreen") } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "reduceMotion") } }
+    @Published var experimentalYandexEnabled: Bool { didSet { defaults.set(experimentalYandexEnabled, forKey: "experimentalYandexEnabled") } }
     @Published private(set) var launchAtLogin = false
     @Published var loginMessage: String?
     private let defaults: UserDefaults
@@ -17,6 +18,7 @@ import SwiftUI
         hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.32
         allowFullscreen = defaults.object(forKey: "allowFullscreen") as? Bool ?? false
         reduceMotion = defaults.bool(forKey: "reduceMotion")
+        experimentalYandexEnabled = defaults.object(forKey: "experimentalYandexEnabled") as? Bool ?? true
         refreshLoginStatus()
     }
 
