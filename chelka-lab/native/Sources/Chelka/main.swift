@@ -41,8 +41,20 @@ import ChelkaCore
         menu.addItem(.separator())
         menu.addItem(item("Настройки…", action: #selector(openPreferences), key: ","))
         menu.addItem(item("Показать локальное хранилище", action: #selector(showStorage)))
+#if DEBUG
+        let diagnostics=NSMenuItem(title:"Live Surface · диагностика",action:nil,keyEquivalent:"")
+        let tests=NSMenu()
+        for (title,action) in [("Stretch",#selector(testStretch)),("Peek",#selector(testPeek)),("Приоритет P1 поверх P2",#selector(testPriorities)),("Три повтора Stretch",#selector(testDuplicates)),("Индикатор внимания",#selector(testAttention)),("Очистить диагностику",#selector(clearDiagnostics))] {
+            tests.addItem(item(title,action:action))
+        }
+        diagnostics.submenu=tests;menu.addItem(diagnostics)
+#endif
         menu.addItem(.separator())
-        let version = NSMenuItem(title: "Forelock 0.5.2 · эксперимент", action: nil, keyEquivalent: "")
+#if DEBUG
+        let version = NSMenuItem(title: "Forelock 0.5.3 · Debug", action: nil, keyEquivalent: "")
+#else
+        let version = NSMenuItem(title: "Forelock 0.5.3 · эксперимент", action: nil, keyEquivalent: "")
+#endif
         version.isEnabled = false; menu.addItem(version)
         menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
         statusItem.menu = menu
@@ -52,6 +64,14 @@ import ChelkaCore
         item.target = self
         return item
     }
+#if DEBUG
+    @objc private func testStretch() { model.liveSurface.diagnose(.stretch) }
+    @objc private func testPeek() { model.liveSurface.diagnose(.peek) }
+    @objc private func testPriorities() { model.liveSurface.diagnose(.priorities) }
+    @objc private func testDuplicates() { model.liveSurface.diagnose(.duplicates) }
+    @objc private func testAttention() { model.liveSurface.diagnose(.attention) }
+    @objc private func clearDiagnostics() { model.liveSurface.diagnose(.clear) }
+#endif
     @objc private func openNotch() { windowController.open() }
     @objc private func openShelf() { windowController.open(.shelf) }
     @objc private func openPreferences() { windowController.open(.preferences) }

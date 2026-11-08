@@ -95,6 +95,7 @@ final class NotchPanel: NSPanel {
             guard let self else { return }
             self.record(reason, previous: previous)
             self.pointerPolicy.transitioned(to: next.interactionMode)
+            self.syncLiveSurface()
             if next == .idle { self.panel.resignKey() }
             else { self.panel.orderFrontRegardless() }
             self.updateMouseRouting(at: NSEvent.mouseLocation)
@@ -113,6 +114,9 @@ final class NotchPanel: NSPanel {
         panel.orderFrontRegardless()
     }
     func collapse(reason: String = "explicit-close") {
+        if model.state == .idle && !model.magnetic && (model.liveSurface.presentation.mode == .peek || model.liveSurface.presentation.mode == .stretch) {
+            model.liveSurface.dismissCurrent(); return
+        }
         if reason == "escape", model.clearShelfSelection() { record("selection-escape"); return }
         if model.fileDrop?.isReady == true {
             cancelIncomingDrag(); record("file-drag-cancel-" + reason); return
@@ -142,7 +146,7 @@ final class NotchPanel: NSPanel {
                                  leftArea: screen.auxiliaryTopLeftArea, rightArea: screen.auxiliaryTopRightArea)
         geometry = next
         model.geometry = next
-        if !model.state.isOpen { spring = SurfaceSpring(next.idleSize); model.surfaceSize = next.idleSize }
+        if !model.state.isOpen && !model.magnetic && model.liveSurface.presentation.mode == .silent { spring = SurfaceSpring(next.idleSize); model.surfaceSize = next.idleSize }
         applyWindowLayout()
         pointerPolicy.resetTimers()
         updateMouseRouting(at: NSEvent.mouseLocation)
@@ -216,7 +220,8 @@ final class NotchPanel: NSPanel {
     private func updateMouseRouting(at point: CGPoint) {
         let capture = (dragProbe.isArmed || incomingDragSequence != nil) && NSEvent.pressedMouseButtons & 1 != 0
         let zone = regions(at: point)
-        panel.ignoresMouseEvents = !(capture || (model.magnetic && zone?.inControls == true) || (zone?.acceptsMouse(in: model.state.interactionMode) ?? false))
+        let peek = model.state == .idle && !model.magnetic && model.liveSurface.presentation.mode == .peek && zone?.inControls == true
+        panel.ignoresMouseEvents = !(capture || peek || (model.magnetic && zone?.inControls == true) || (zone?.acceptsMouse(in: model.state.interactionMode) ?? false))
     }
     func mouseDown(at point: CGPoint) {
         record("mouse-down", pointer: point)
@@ -245,6 +250,7 @@ final class NotchPanel: NSPanel {
         let began = incomingDragSequence != sequence
         incomingDragSequence = sequence
         model.beginFileDrop(count: count)
+        syncLiveSurface()
         pointerPolicy.resetTimers()
         if began { record("native-file-drag-enter") }
     }
@@ -254,12 +260,14 @@ final class NotchPanel: NSPanel {
         incomingDragSequence = nil; dragReleasedAt = nil
         dragProbe.rejectUntilMouseUp()
         model.cancelFileDrop()
+        syncLiveSurface()
         pointerPolicy.resetTimers()
     }
     private func cancelIncomingDrag() {
         incomingDragSequence = nil; dragReleasedAt = nil
         dragProbe.rejectUntilMouseUp()
         model.cancelFileDrop(); pointerPolicy.resetTimers()
+        syncLiveSurface()
     }
     func applyWindowLayout() {
         guard let geometry, let container = panel.contentView as? DropHostingView else { return }
@@ -303,6 +311,8 @@ final class NotchPanel: NSPanel {
             model.fullscreen = frontmostIsFullscreen(geometry.screenFrame)
             if model.fullscreen && !model.preferences.allowFullscreen && model.state == .hover && !model.magnetic { collapse(reason: "fullscreen-hover") }
         }
+        syncLiveSurface()
+        model.liveSurface.tick()
         samplePointer(at: pointer, now: now, pressed: NSEvent.pressedMouseButtons != 0)
         let target = model.targetSize
         if model.reduceMotion {
@@ -313,6 +323,12 @@ final class NotchPanel: NSPanel {
         }
         applyWindowLayout()
         updateMouseRouting(at: pointer)
+    }
+    private func syncLiveSurface() {
+        let zone=regions(at:NSEvent.mouseLocation)
+        model.liveSurface.setContext(workspace:model.state.isOpen || model.magnetic || model.isInteracting || model.shelf.loading || model.draggingOut || incomingDragSequence != nil || dragProbe.isArmed,
+                                     fullscreen:model.fullscreen,
+                                     peekEngaged:model.liveSurface.presentation.mode == .peek && (zone?.inControls == true || NSEvent.pressedMouseButtons != 0))
     }
     func samplePointer(at pointer: CGPoint, now: Double, pressed: Bool) {
         guard let zone = regions(at: pointer) else { return }

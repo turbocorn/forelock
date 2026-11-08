@@ -21,10 +21,14 @@ struct NotchRootView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var shelf: ShelfModel
     @ObservedObject var preferences: Preferences
+    @ObservedObject var live: LiveSurfaceCoordinator
+    init(model:NotchModel,shelf:ShelfModel,preferences:Preferences) {
+        self.model=model;self.shelf=shelf;self.preferences=preferences;self.live=model.liveSurface
+    }
     private var shape: NotchSilhouette { NotchSilhouette(geometry: model.geometry) }
     private var visibleSurface: Bool {
         let idle = model.geometry?.idleSize ?? CGSize(width: 220, height: 38)
-        return model.state.isOpen || model.magnetic || model.surfaceSize.width > idle.width + 0.5 || model.surfaceSize.height > idle.height + 0.5
+        return model.state.isOpen || model.magnetic || live.presentation.mode == .ambient || live.presentation.mode == .stretch || live.presentation.mode == .peek || model.surfaceSize.width > idle.width + 0.5 || model.surfaceSize.height > idle.height + 0.5
     }
     private var expandedContentOpacity: Double {
         guard !model.reduceMotion else { return 1 }
@@ -35,10 +39,14 @@ struct NotchRootView: View {
         ZStack(alignment: .top) {
             shape.fill(visibleSurface ? Color.black : Color.clear)
             if model.state == .idle && !model.magnetic {
+                if live.presentation.mode != .silent && live.presentation.mode != .workspace {
+                    LiveSurfaceView(live:live,geometry:model.geometry,size:model.surfaceSize)
+                }
                 Color.clear.accessibilityElement()
                     .accessibilityLabel("Forelock, свёрнута")
                     .accessibilityAction(named: Text("Раскрыть Forelock")) { model.open() }
                     .accessibilityAction(named: Text("Показать Hover")) { model.open(.hover, reason: "accessibility-hover") }
+                    .allowsHitTesting(false)
             } else {
                 VStack(spacing: 0) {
                     // One persistent header. Its shoulders track presentation width,
@@ -71,6 +79,7 @@ struct NotchRootView: View {
         .preferredColorScheme(.dark)
         .foregroundStyle(Color.chelkaText)
         .accessibilityIdentifier("ChelkaSurface")
+        .modifier(LiveSurfaceDiagnosticActions(live:live))
     }
 }
 
@@ -327,7 +336,7 @@ struct PreferencesView: View {
     @ObservedObject var preferences: Preferences
     var body: some View {
         HStack(alignment: .top, spacing: 32) {
-            VStack(alignment: .leading, spacing: 18) {
+            ScrollView(.vertical) { VStack(alignment: .leading, spacing: 18) {
                 Text("Взаимодействие").font(.system(size: 17, weight: .medium))
                 preferenceToggle("Открывать при наведении", isOn: $preferences.hoverEnabled)
                 HStack(spacing: 12) {
@@ -336,8 +345,8 @@ struct PreferencesView: View {
                     Text(String(format: "%.2f с", preferences.hoverDelay)).font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).frame(width: 42)
                 }
                 preferenceToggle("Раскрывать в полноэкранном режиме", isOn: $preferences.allowFullscreen)
-                Spacer()
-            }.frame(maxWidth: .infinity)
+                LiveSurfaceSettings(preferences:preferences)
+            }.frame(maxWidth: .infinity) }.scrollIndicators(.visible)
             SurfaceDivider()
             VStack(alignment: .leading, spacing: 10) {
                 Text("Приложение").font(.system(size: 17, weight: .medium))

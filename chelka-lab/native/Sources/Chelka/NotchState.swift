@@ -50,6 +50,7 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
     let preferences: Preferences
     let activity: any ActivityProvider
     let music: MusicCoordinator
+    let liveSurface: LiveSurfaceCoordinator
     var onTransition: ((NotchState, NotchState, String) -> Void)?
     var requestKey: (() -> Void)?
     var requestShelfFocus: (() -> Void)?
@@ -86,6 +87,10 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
         self.preferences = preferences
         self.activity = UnconnectedActivityProvider()
         self.music = MusicCoordinator()
+        self.liveSurface = LiveSurfaceCoordinator(music: music, shelf: shelf, preferences: preferences)
+        liveSurface.performAction = { [weak self] action in
+            switch action { case .openShelf: self?.open(.shelf, reason: "live-surface-action") }
+        }
         shelfChanges = shelf.$items.sink { [weak self] items in
             guard let self else { return }
             var next = self.selection; next.reconcile(items.map(\.id))
@@ -102,7 +107,7 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
         let compactWidth = geometry?.hoverWidth ?? 420
         if magnetic { return FileDropLayout.surfaceSize(geometry) }
         switch state {
-        case .idle: return geometry?.idleSize ?? CGSize(width: 220, height: 38)
+        case .idle: return LiveSurfaceLayout.size(for: liveSurface.presentation.mode, geometry: geometry)
         case .hover: return CGSize(width: compactWidth, height: top + 102)
         case .miniShelf: return FileDropLayout.surfaceSize(geometry)
         case .overview, .shelf: return CGSize(width: expandedWidth, height: top + 212 + (shelf.error == nil ? 0 : 30))

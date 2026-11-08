@@ -1,6 +1,7 @@
 import Foundation
 import ServiceManagement
 import SwiftUI
+import ChelkaCore
 
 @MainActor final class Preferences: ObservableObject {
     @Published var hoverEnabled: Bool { didSet { defaults.set(hoverEnabled, forKey: "hoverEnabled") } }
@@ -8,6 +9,9 @@ import SwiftUI
     @Published var allowFullscreen: Bool { didSet { defaults.set(allowFullscreen, forKey: "allowFullscreen") } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "reduceMotion") } }
     @Published var experimentalYandexEnabled: Bool { didSet { defaults.set(experimentalYandexEnabled, forKey: "experimentalYandexEnabled") } }
+    @Published var liveLeft: LiveSlotChoice { didSet { defaults.set(liveLeft.rawValue, forKey: "liveLeft") } }
+    @Published var liveRight: LiveSlotChoice { didSet { defaults.set(liveRight.rawValue, forKey: "liveRight") } }
+    @Published var allowLiveFullscreen: Bool { didSet { defaults.set(allowLiveFullscreen, forKey: "allowLiveFullscreen") } }
     @Published private(set) var launchAtLogin = false
     @Published var loginMessage: String?
     private let defaults: UserDefaults
@@ -19,6 +23,9 @@ import SwiftUI
         allowFullscreen = defaults.object(forKey: "allowFullscreen") as? Bool ?? false
         reduceMotion = defaults.bool(forKey: "reduceMotion")
         experimentalYandexEnabled = defaults.object(forKey: "experimentalYandexEnabled") as? Bool ?? true
+        liveLeft = LiveSlotChoice(rawValue: defaults.string(forKey: "liveLeft") ?? "") ?? .auto
+        liveRight = LiveSlotChoice(rawValue: defaults.string(forKey: "liveRight") ?? "") ?? .auto
+        allowLiveFullscreen = defaults.bool(forKey: "allowLiveFullscreen")
         refreshLoginStatus()
     }
 
