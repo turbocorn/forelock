@@ -24,6 +24,7 @@ final class NotchPanel: NSPanel {
     private var spring = SurfaceSpring(CGSize(width: 236, height: 46))
     private var lastTick = ProcessInfo.processInfo.systemUptime
     private var pointerPolicy = NotchPointerPolicy()
+    private var miniShelfPolicy = MiniShelfPointerPolicy()
     private var incomingDragSequence: Int?
     private var dragProbe = FileDragProbe()
     private var dragReleasedAt: Double?
@@ -286,6 +287,13 @@ final class NotchPanel: NSPanel {
     }
     func samplePointer(at pointer: CGPoint, now: Double, pressed: Bool) {
         guard let zone = regions(at: pointer) else { return }
+        if miniShelfPolicy.shouldDismiss(presentation: model.isMiniShelf ? model.recentDrop?.id : nil, now: now,
+                                         inside: zone.retainsHover,
+                                         interacting: pressed || model.isInteracting || model.draggingOut || incomingDragSequence != nil) {
+            model.dismissMiniShelf()
+            record("mini-shelf-exit-delay", pointer: pointer)
+            return
+        }
         let previousTimers = [pointerPolicy.hoverSince, pointerPolicy.outsideSince]
         let action = pointerPolicy.sample(mode: model.state.interactionMode, now: now,
                                           inActivation: zone.inActivation, retainsHover: zone.retainsHover, pressed: pressed,

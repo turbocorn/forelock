@@ -45,7 +45,11 @@ struct NotchRootView: View {
                     // so the camera exclusion stays fixed during an interrupted spring.
                     NotchHeaderRow(model: model, shelf: shelf)
                         .frame(width: model.surfaceSize.width, height: model.headerHeight)
-                    if let status = model.fileDrop {
+                    if model.isMiniShelf {
+                        let rect = FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight)
+                        RecentFilesView(model: model, shelf: shelf).frame(width: rect.width, height: rect.height)
+                            .padding(.top, 12)
+                    } else if let status = model.fileDrop {
                         let rect = FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight)
                         MagneticView(status: status).frame(width: rect.width, height: rect.height)
                             .padding(.top, 12)
@@ -85,6 +89,9 @@ struct NotchHeaderRow: View {
         let cameraWidth = layout?.camera.width ?? 0
         HStack(spacing: 0) {
             HStack(spacing: 16) {
+                if model.isMiniShelf && model.miniShelfReturnsToPinnedContext {
+                    icon("arrow.left", label: model.miniShelfReturnLabel) { model.dismissMiniShelf(reason: "recent-back") }
+                }
                 Text("Forelock").font(.system(size: 14, weight: .semibold))
                 if expanded {
                     nav("Обзор", active: model.state == .overview) { model.open(.overview) }
@@ -98,12 +105,16 @@ struct NotchHeaderRow: View {
             Color.clear.frame(width: cameraWidth, height: model.headerHeight)
                 .allowsHitTesting(false).accessibilityHidden(true)
             HStack(spacing: 8) {
-                if model.magnetic {
+                if model.isMiniShelf {
+                    Button("Все файлы") { model.open(.shelf, reason: "recent-all-files") }
+                        .font(.system(size: 11)).foregroundStyle(Color.chelkaMuted).buttonStyle(.plain)
+                        .frame(minHeight: 28).accessibilityLabel("Все файлы")
+                } else if model.magnetic {
                     Text("Полка").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted)
                 } else if expanded {
                     if shelf.loading { ProgressView().controlSize(.small).accessibilityLabel("Копирование файлов") }
                     else if case .preview = model.state {
-                        headerAction("Назад к полке", symbol: "arrow.left") { model.open(.shelf) }
+                        headerAction(model.previewReturnsToMiniShelf ? "К добавленным" : "Назад к полке", symbol: "arrow.left") { model.backFromPreview() }
                     } else {
                         headerAction("Добавить", symbol: "plus") { model.chooseFiles() }
                     }
@@ -183,7 +194,7 @@ struct ExpandedView: View {
                     if let item = shelf.items.first(where: { $0.id == id }) { FilePreviewView(model: model, shelf: shelf, item: item) }
                     else { ShelfView(model: model, shelf: shelf) }
                 case .preferences: PreferencesView(model: model, preferences: preferences)
-                case .idle, .hover: EmptyView()
+                case .idle, .hover, .miniShelf: EmptyView()
                 }
             }.frame(height: model.bodyHeight, alignment: .top)
             if let error = shelf.error {
@@ -214,7 +225,7 @@ struct OverviewView: View {
                     Text("Файлы появятся здесь после добавления.").font(.system(size: 12)).foregroundStyle(Color.chelkaMuted)
                 } else {
                     ForEach(shelf.items.prefix(3)) { item in
-                        Button { model.open(.preview(item.id)) } label: {
+                        Button { model.openPreview(item.id) } label: {
                             HStack(spacing: 10) {
                                 Image(nsImage: shelf.image(item)).resizable().scaledToFit().frame(width: 26, height: 26)
                                 Text(item.name).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
@@ -255,7 +266,7 @@ struct ShelfView: View {
                             ForEach(shelf.items) { item in
                                 VStack(spacing: 6) {
                                     ZStack(alignment: .topTrailing) {
-                                        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item), open: { model.open(.preview(item.id)) }, dragChanged: { model.draggingOut = $0 })
+                                        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item), open: { model.openPreview(item.id) }, dragChanged: { model.draggingOut = $0 })
                                             .frame(height: 91)
                                         Button { shelf.remove(item) } label: {
                                             Image(systemName: "xmark").font(.system(size: 9, weight: .medium)).foregroundStyle(Color.chelkaMuted)
@@ -298,7 +309,7 @@ struct FilePreviewView: View {
                 SurfaceButton("Сохранить копию", symbol: "square.and.arrow.down") { model.saveCopy(of: item) }
                 HStack {
                     SurfaceButton("В Finder", symbol: "folder") { NSWorkspace.shared.activateFileViewerSelecting([shelf.url(for: item)]) }
-                    SurfaceButton("Назад") { model.open(.shelf) }
+                    SurfaceButton("Назад") { model.backFromPreview() }
                 }
                 if let error = model.error { Text(error).font(.system(size: 10)).foregroundStyle(Color.chelkaMuted).lineLimit(2) }
             }.frame(width: 210, alignment: .leading)
@@ -352,14 +363,12 @@ struct MagneticView: View {
         switch status {
         case .ready: return "Отпустите файлы"
         case .copying: return "Копирование на полку…"
-        case .complete(let added, _): return added > 0 ? "Добавлено: \(fileCount(added))" : "Не удалось добавить файлы"
         }
     }
     private var detail: String {
         switch status {
         case .ready(let count): return "\(fileCount(count)) · Оригиналы останутся на месте"
         case .copying(let count): return fileCount(count)
-        case .complete(let added, let attempted): return added == attempted ? "Копии сохранены на полке" : "Сохранено \(added) из \(attempted). Подробности — на полке."
         }
     }
     var body: some View {
@@ -371,6 +380,49 @@ struct MagneticView: View {
             .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 14))
             .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 5])) }
             .accessibilityElement(children: .combine).accessibilityIdentifier("ForelockFileDrop")
+    }
+}
+
+/// The same Shelf items, thumbnails, native drag source and Quick Look route.
+/// Only the IDs of the latest import are selected for this compact presentation.
+struct RecentFilesView: View {
+    @ObservedObject var model: NotchModel
+    @ObservedObject var shelf: ShelfModel
+    private var tileWidth: CGFloat { max(64, min(110, (model.surfaceSize.width - 70) / 4)) }
+    private var summary: String {
+        guard let result = model.recentDrop else { return "" }
+        if result.itemIDs.isEmpty { return "Не удалось добавить файлы" }
+        return result.itemIDs.count == result.attempted ? "Добавлено: \(fileCount(result.itemIDs.count))" : "Добавлено \(result.itemIDs.count) из \(result.attempted)"
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(summary).font(.system(size: 12, weight: .medium))
+            if !model.miniShelfItems.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(model.miniShelfItems) { item in
+                        NativeFileTile(item: item, image: shelf.image(item), url: shelf.url(for: item),
+                                       open: { model.openRecentFile(item.id) }, dragChanged: { model.draggingOut = $0 })
+                            .frame(width: tileWidth, height: 88)
+                    }
+                    if model.miniShelfOverflow > 0 {
+                        Button { model.open(.shelf, reason: "recent-overflow") } label: {
+                            Text("+\(model.miniShelfOverflow)").font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(Color.chelkaMuted).frame(width: tileWidth, height: 88)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel("Ещё \(model.miniShelfOverflow). Все файлы")
+                    }
+                    if model.miniShelfItems.count < 4 && model.miniShelfOverflow == 0 { Spacer(minLength: 0).frame(maxWidth: .infinity) }
+                }
+            }
+            if let error = model.recentDrop?.error {
+                Text(error).font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+                    .lineLimit(model.miniShelfItems.isEmpty ? 5 : 2).fixedSize(horizontal: false, vertical: true)
+                    .help(error).accessibilityLabel(error)
+            } else {
+                Text("Нажмите для просмотра. Потяните, чтобы забрать.").font(.system(size: 10)).foregroundStyle(Color.chelkaMuted)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityIdentifier("ForelockRecentFiles")
     }
 }
 struct SmallIconButton: View {

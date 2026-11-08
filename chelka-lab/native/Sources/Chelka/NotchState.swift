@@ -4,16 +4,23 @@ import ChelkaCore
 
 // One surface, no independent notification windows.
 enum NotchState: Equatable {
-    case idle, hover, overview, shelf, preview(UUID), preferences
+    case idle, hover, overview, shelf, miniShelf, preview(UUID), preferences
     var isOpen: Bool { self != .idle }
-    var isExpanded: Bool { self != .idle && self != .hover }
+    var isExpanded: Bool { self != .idle && self != .hover && self != .miniShelf }
     var interactionMode: NotchInteractionMode { self == .idle ? .idle : self == .hover ? .hover : .expanded }
 }
 
 struct Activity: Identifiable { let id: UUID; let title: String; let detail: String }
 enum FileDropStatus: Equatable {
-    case ready(Int), copying(Int), complete(added: Int, attempted: Int)
+    case ready(Int), copying(Int)
     var isReady: Bool { if case .ready = self { return true }; return false }
+}
+/// References the existing Shelf repository; no second set of file data.
+struct RecentFileDrop: Identifiable, Equatable {
+    let id = UUID()
+    let itemIDs: [UUID]
+    let attempted: Int
+    let error: String?
 }
 @MainActor protocol ActivityProvider: AnyObject { var activities: [Activity] { get } }
 /// Intentionally empty until a real source is connected.
@@ -24,7 +31,9 @@ enum FileDropStatus: Equatable {
     @Published var surfaceSize = CGSize(width: 236, height: 46)
     @Published var geometry: NotchGeometry?
     @Published private(set) var fileDrop: FileDropStatus?
+    @Published private(set) var recentDrop: RecentFileDrop?
     var magnetic: Bool { fileDrop != nil }
+    var isMiniShelf: Bool { state == .miniShelf && !magnetic }
     @Published var attraction: CGFloat = 0
     @Published var fullscreen = false
     @Published var isInteracting = false
@@ -37,7 +46,23 @@ enum FileDropStatus: Equatable {
     let music: MusicCoordinator
     var onTransition: ((NotchState, NotchState, String) -> Void)?
     var requestKey: (() -> Void)?
-    private var dropFeedback: Task<Void, Never>?
+    private var dropImport: Task<Void, Never>?
+    private var dropReturnState: NotchState = .idle
+    private var previewReturnState: NotchState = .shelf
+    var previewReturnsToMiniShelf: Bool { previewReturnState == .miniShelf && recentDrop != nil }
+    var miniShelfReturnsToPinnedContext: Bool { dropReturnState.isExpanded }
+    var miniShelfReturnLabel: String {
+        switch dropReturnState {
+        case .shelf: return "Назад к полке"
+        case .overview: return "Назад к обзору"
+        case .preview: return "Назад к просмотру"
+        case .preferences: return "Назад к настройкам"
+        default: return "Назад"
+        }
+    }
+    var recentItems: [ShelfItem] { (recentDrop?.itemIDs ?? []).compactMap { id in shelf.items.first { $0.id == id } } }
+    var miniShelfItems: [ShelfItem] { Array(recentItems.prefix(recentItems.count > 4 ? 3 : 4)) }
+    var miniShelfOverflow: Int { max(0, recentItems.count - miniShelfItems.count) }
 
     init(shelf: ShelfModel, preferences: Preferences) {
         self.shelf = shelf
@@ -57,6 +82,7 @@ enum FileDropStatus: Equatable {
         switch state {
         case .idle: return geometry?.idleSize ?? CGSize(width: 220, height: 38)
         case .hover: return CGSize(width: compactWidth, height: top + 102)
+        case .miniShelf: return FileDropLayout.surfaceSize(geometry)
         case .overview, .shelf: return CGSize(width: expandedWidth, height: top + 212 + (shelf.error == nil ? 0 : 30))
         case .preview: return CGSize(width: expandedWidth, height: top + 272)
         case .preferences: return CGSize(width: expandedWidth, height: top + 252)
@@ -64,6 +90,11 @@ enum FileDropStatus: Equatable {
     }
     var reduceMotion: Bool { preferences.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     func open(_ destination: NotchState = .overview, byHover: Bool = false, reason: String = "explicit-open") {
+        if destination == .miniShelf && recentDrop == nil { return }
+        if destination != .miniShelf {
+            if case .preview = destination { /* keep a recent-import preview's return path */ }
+            else { recentDrop = nil; previewReturnState = .shelf }
+        }
         error = nil
         // SurfaceSpring owns geometry. A second implicit SwiftUI frame animation
         // would lag behind NSPanel and detach the mask during expansion.
@@ -72,6 +103,8 @@ enum FileDropStatus: Equatable {
     }
     @discardableResult func close(reason: String = "close-button") -> Bool {
         guard !isInteracting && !draggingOut && !magnetic else { return false }
+        if case .preview = state, previewReturnsToMiniShelf { backFromPreview(); return true }
+        recentDrop = nil; previewReturnState = .shelf
         attraction = 0
         transition(to: .idle, reason: reason)
         return true
@@ -95,30 +128,47 @@ enum FileDropStatus: Equatable {
     func beginFileDrop(count: Int) {
         guard count > 0, !isInteracting, !draggingOut, !shelf.loading else { return }
         guard fileDrop != .ready(count) else { return }
-        dropFeedback?.cancel(); dropFeedback = nil
+        if fileDrop == nil && !isMiniShelf && !previewReturnsToMiniShelf { dropReturnState = state }
         fileDrop = .ready(count)
     }
     func cancelFileDrop() {
         guard fileDrop?.isReady == true else { return }
         fileDrop = nil
     }
-    /// Keep `state` intact: the temporary drop surface never navigates to Shelf
-    /// or takes key focus from Finder. The existing repository still owns copies.
+    /// Capture actual imported IDs; the existing repository still owns copies.
     @discardableResult func acceptFileDrop(_ urls: [URL]) -> Bool {
         guard !urls.isEmpty, fileDrop?.isReady == true, !isInteracting, !draggingOut, !shelf.loading else { return false }
         fileDrop = .copying(urls.count)
         isInteracting = true
         let previousIDs = Set(shelf.items.map(\.id))
-        dropFeedback = Task { [weak self] in
+        dropImport = Task { [weak self] in
             guard let self else { return }
             await self.shelf.importFiles(urls)
-            let added = self.shelf.items.filter { !previousIDs.contains($0.id) }.count
+            let ids = self.shelf.items.filter { !previousIDs.contains($0.id) }.reversed().map(\.id)
             self.isInteracting = false
-            self.fileDrop = .complete(added: added, attempted: urls.count)
-            do { try await Task.sleep(for: .seconds(1.25)) } catch { return }
+            self.recentDrop = RecentFileDrop(itemIDs: ids, attempted: urls.count, error: self.shelf.error)
             self.fileDrop = nil
+            // Showing the result must not activate Forelock or steal Finder's focus.
+            self.transition(to: .miniShelf, reason: "file-drop-result")
+            self.dropImport = nil
         }
         return true
+    }
+    func openRecentFile(_ id: UUID) {
+        guard recentDrop?.itemIDs.contains(id) == true, shelf.items.contains(where: { $0.id == id }) else { return }
+        previewReturnState = .miniShelf
+        open(.preview(id), reason: "recent-file-preview")
+    }
+    func openPreview(_ id: UUID) {
+        previewReturnState = .shelf; recentDrop = nil
+        open(.preview(id))
+    }
+    func backFromPreview() { open(previewReturnsToMiniShelf ? .miniShelf : .shelf, reason: "preview-back") }
+    func dismissMiniShelf(reason: String = "mini-shelf-exit") {
+        guard state == .miniShelf, !magnetic, !isInteracting, !draggingOut else { return }
+        let destination = dropReturnState.isExpanded ? dropReturnState : .idle
+        recentDrop = nil; previewReturnState = .shelf
+        transition(to: destination, reason: reason)
     }
     func saveCopy(of item: ShelfItem) {
         isInteracting = true

@@ -83,7 +83,9 @@ final class FileDropTests: XCTestCase {
             let deadline=Date().addingTimeInterval(5)
             while await MainActor.run(body:{m.magnetic}) && Date()<deadline { try await Task.sleep(for:.milliseconds(25)) }
             await MainActor.run {
-                XCTAssertFalse(m.magnetic);XCTAssertEqual(m.state,context);XCTAssertEqual(m.shelf.items.count,2);XCTAssertFalse(m.isInteracting)
+                XCTAssertFalse(m.magnetic);XCTAssertEqual(m.state,.miniShelf);XCTAssertEqual(m.shelf.items.count,2);XCTAssertFalse(m.isInteracting)
+                XCTAssertEqual(m.recentDrop?.itemIDs.count,2)
+                m.dismissMiniShelf();XCTAssertEqual(m.state,context)
                 for item in m.shelf.items { XCTAssertTrue(FileManager.default.fileExists(atPath:m.shelf.url(for:item).path)) }
                 UserDefaults(suiteName:domain)!.removePersistentDomain(forName:domain)
             }
@@ -103,14 +105,13 @@ final class FileDropTests: XCTestCase {
         let deadline = Date().addingTimeInterval(5)
         while await MainActor.run(body: { model.isInteracting }) && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         await MainActor.run {
-            XCTAssertEqual(model.fileDrop, .complete(added: 0, attempted: 1))
-            XCTAssertEqual(model.state, .overview); XCTAssertTrue(model.shelf.items.isEmpty)
+            XCTAssertNil(model.fileDrop)
+            XCTAssertEqual(model.recentDrop?.itemIDs.count, 0); XCTAssertEqual(model.recentDrop?.attempted, 1)
+            XCTAssertEqual(model.state, .miniShelf); XCTAssertTrue(model.shelf.items.isEmpty)
             XCTAssertNotNil(model.shelf.error)
             UserDefaults(suiteName: domain)!.removePersistentDomain(forName: domain)
         }
-        // Allow the confirmation task to finish before deleting its fixture root.
-        while await MainActor.run(body: { model.magnetic }) && Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        await MainActor.run { XCTAssertFalse(model.magnetic); XCTAssertEqual(model.state, .overview) }
+        await MainActor.run { model.dismissMiniShelf(); XCTAssertFalse(model.magnetic); XCTAssertEqual(model.state, .overview) }
     }
     func testDestinationUsesSessionFileURLsAndOnlyVisibleDropRect() async {
         await MainActor.run {
