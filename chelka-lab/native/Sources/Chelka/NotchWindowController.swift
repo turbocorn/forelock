@@ -22,6 +22,8 @@ final class NotchPanel: NSPanel {
     private var observers: [NSObjectProtocol] = []
     private var spaceObserver: NSObjectProtocol?
     private var spring = SurfaceSpring(CGSize(width: 236, height: 46))
+    private var insetSpring=SurfaceSpring(.zero)
+    private var lastPaintedInsets=CGSize.zero
     private var lastTick = ProcessInfo.processInfo.systemUptime
     private var pointerPolicy = NotchPointerPolicy()
     private var miniShelfPolicy = MiniShelfPointerPolicy()
@@ -93,6 +95,8 @@ final class NotchPanel: NSPanel {
         model.requestShelfFocus = { [weak self] in self?.focusShelf() }
         model.onTransition = { [weak self] previous, next, reason in
             guard let self else { return }
+            if next == .idle {self.model.liveHandoff=false}
+            else if previous == .idle && self.model.liveDisplayOpacity>0 {self.model.liveHandoff=true}
             self.record(reason, previous: previous)
             self.pointerPolicy.transitioned(to: next.interactionMode)
             self.syncLiveSurface()
@@ -146,7 +150,7 @@ final class NotchPanel: NSPanel {
                                  leftArea: screen.auxiliaryTopLeftArea, rightArea: screen.auxiliaryTopRightArea)
         geometry = next
         model.geometry = next
-        if !model.state.isOpen && !model.magnetic && model.liveSurface.presentation.mode == .silent { spring = SurfaceSpring(next.idleSize); model.surfaceSize = next.idleSize }
+        if !model.state.isOpen && !model.magnetic && model.liveSurface.presentation.mode == .silent { spring = SurfaceSpring(next.idleSize); insetSpring=SurfaceSpring(.zero); model.surfaceInsets = .zero; model.surfaceSize = next.idleSize }
         applyWindowLayout()
         pointerPolicy.resetTimers()
         updateMouseRouting(at: NSEvent.mouseLocation)
@@ -211,7 +215,9 @@ final class NotchPanel: NSPanel {
     }
     private func regions(at point: CGPoint) -> NotchPointerRegions? {
         guard let geometry else { return nil }
-        return NotchPointerRegions(geometry: geometry, frame: surfaceFrame, pointer: point)
+        let frame=surfaceFrame
+        let painted=LiveSurfaceLayout.paintedRect(in:frame.size,insets:model.surfaceInsets,cameraWidth:geometry.hasNotch ? geometry.neckWidth : 0)
+        return NotchPointerRegions(geometry: geometry, frame:frame, pointer: point, paintedBounds:painted)
     }
     private var surfaceFrame: CGRect {
         guard let size = (panel.contentView as? DropHostingView)?.presentationSize else { return panel.frame }
@@ -276,7 +282,9 @@ final class NotchPanel: NSPanel {
         let frame = capturing ? visual.union(geometry.frame(for: FileDropLayout.captureSize(geometry))) : visual
         let needsLayout = panel.frame != frame || container.presentationSize != (capturing ? model.surfaceSize : nil) || container.subviews.first?.frame.size != model.surfaceSize
         container.presentationSize = capturing ? model.surfaceSize : nil
-        if panel.frame != frame { panel.setFrame(frame, display: true); panel.invalidateShadow() }
+        let silhouetteChanged=lastPaintedInsets != model.surfaceInsets;lastPaintedInsets=model.surfaceInsets
+        if panel.frame != frame {panel.setFrame(frame,display:true);panel.invalidateShadow()}
+        else if silhouetteChanged {panel.invalidateShadow()}
         if needsLayout { container.needsLayout = true; container.layoutSubtreeIfNeeded() }
     }
     private func record(_ reason: String, pointer: CGPoint = NSEvent.mouseLocation, previous: NotchState? = nil) {
@@ -314,21 +322,27 @@ final class NotchPanel: NSPanel {
         syncLiveSurface()
         model.liveSurface.tick()
         samplePointer(at: pointer, now: now, pressed: NSEvent.pressedMouseButtons != 0)
-        let target = model.targetSize
+        advanceSurface(dt:dt)
+        updateMouseRouting(at:pointer)
+    }
+    func advanceSurface(dt:Double) {
+        let target=model.targetSize,insets=model.targetInsets
         if model.reduceMotion {
-            if spring.value != target { spring = SurfaceSpring(target); model.surfaceSize = target }
-        } else if spring.value != target || spring.velocity != .zero {
-            _ = spring.step(toward: target, dt: dt)
-            model.surfaceSize = spring.value
+            if spring.value != target || spring.velocity != .zero {spring=SurfaceSpring(target);model.surfaceSize=target}
+            if insetSpring.value != insets || insetSpring.velocity != .zero {insetSpring=SurfaceSpring(insets);model.surfaceInsets=insets}
+        } else {
+            if spring.value != target || spring.velocity != .zero {_=spring.step(toward:target,dt:dt);model.surfaceSize=spring.value}
+            if insetSpring.value != insets || insetSpring.velocity != .zero {_=insetSpring.step(toward:insets,dt:dt);model.surfaceInsets=insetSpring.value}
         }
+        model.advanceLiveContent(dt:dt)
+        if model.liveHandoff,model.workspaceHeaderOpacity>=0.999 {model.liveHandoff=false}
         applyWindowLayout()
-        updateMouseRouting(at: pointer)
     }
     private func syncLiveSurface() {
         let zone=regions(at:NSEvent.mouseLocation)
         model.liveSurface.setContext(workspace:model.state.isOpen || model.magnetic || model.isInteracting || model.shelf.loading || model.draggingOut || incomingDragSequence != nil || dragProbe.isArmed,
                                      fullscreen:model.fullscreen,
-                                     peekEngaged:model.liveSurface.presentation.mode == .peek && (zone?.inControls == true || NSEvent.pressedMouseButtons != 0))
+                                     peekEngaged:model.liveSurface.presentation.mode == .peek && (zone?.retainsHover == true || NSEvent.pressedMouseButtons != 0))
     }
     func samplePointer(at pointer: CGPoint, now: Double, pressed: Bool) {
         guard let zone = regions(at: pointer) else { return }
@@ -344,7 +358,8 @@ final class NotchPanel: NSPanel {
         let action = pointerPolicy.sample(mode: model.state.interactionMode, now: now,
                                           inActivation: zone.inActivation, retainsHover: zone.retainsHover, pressed: pressed,
                                           suspended: model.isInteracting || model.draggingOut || model.magnetic || incomingDragSequence != nil ||
-                                            (model.state == .idle && model.fullscreen && !model.preferences.allowFullscreen),
+                                            (model.state == .idle && model.fullscreen && !model.preferences.allowFullscreen) ||
+                                            (model.state == .idle && model.liveSurface.presentation.mode == .peek),
                                           hoverEnabled: model.preferences.hoverEnabled, hoverDelay: model.preferences.hoverDelay)
         let name = zone.inActivation ? "physical-notch" : zone.inSurface && model.state != .idle ? "surface" : "outside"
         if name != lastPointerZone || previousTimers != [pointerPolicy.hoverSince, pointerPolicy.outsideSince] {

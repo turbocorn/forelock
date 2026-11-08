@@ -181,14 +181,24 @@ public struct LiveSurfaceEngine: Sendable {
 }
 
 public enum LiveSurfaceLayout {
-    public static func size(for mode:LiveSurfaceMode,geometry:NotchGeometry?,shoulderWidth:CGFloat?=nil)->CGSize {
+    public static func footprint(for mode:LiveSurfaceMode,geometry:NotchGeometry?,shoulders:CGSize,peekSize:CGSize=CGSize(width:344,height:110))->LiveSurfaceFootprint {
         let idle=geometry?.idleSize ?? CGSize(width:220,height:38)
-        let camera=(geometry?.hasNotch ?? true) ? (geometry?.neckWidth ?? 220)+24 : 0
+        let camera=geometry?.hasNotch == false ? 0 : geometry?.neckWidth ?? 220
+        let limit=geometry?.expandedWidth ?? 900
         switch mode {
-        case .silent,.workspace:return idle
-        case .ambient:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(idle.width,camera+2*(shoulderWidth ?? 52))),height:idle.height)
-        case .stretch:return CGSize(width:min(geometry?.expandedWidth ?? 900,max(160,camera+2*(shoulderWidth ?? 112))),height:idle.height)
-        case .peek:return CGSize(width:geometry?.hoverWidth ?? 420,height:(geometry?.headerHeight ?? 38)+126)
+        case .silent,.workspace:return LiveSurfaceFootprint(size:idle,insets:.zero)
+        case .peek:return LiveSurfaceFootprint(size:CGSize(width:min(geometry?.hoverWidth ?? 420,peekSize.width),height:peekSize.height),insets:.zero)
+        case .ambient,.stretch:
+            let left=min(max(0,shoulders.width),max(0,(limit-camera)/2))
+            let right=min(max(0,shoulders.height),max(0,(limit-camera)/2))
+            let extent=max(left,right)
+            let size=CGSize(width:max(idle.width,camera>0 ? camera+2*extent : left+right),height:camera==0 && mode == .stretch ? max(idle.height,geometry?.headerHeight ?? 32) : idle.height)
+            return LiveSurfaceFootprint(size:size,insets:camera>0 ? CGSize(width:extent-left,height:extent-right) : .zero)
         }
+    }
+    public static func paintedRect(in size:CGSize,insets:CGSize,cameraWidth:CGFloat)->CGRect {
+        let room=max(0,(size.width-cameraWidth)/2)
+        let left=min(room,max(0,insets.width)),right=min(room,max(0,insets.height))
+        return CGRect(x:left,y:0,width:max(0,size.width-left-right),height:size.height)
     }
 }

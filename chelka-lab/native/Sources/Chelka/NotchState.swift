@@ -31,6 +31,11 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
 @MainActor final class NotchModel: ObservableObject {
     @Published private(set) var state: NotchState = .idle
     @Published var surfaceSize = CGSize(width: 236, height: 46)
+    @Published var surfaceInsets=CGSize.zero
+    @Published private(set) var liveDisplay=LiveSurfacePlan.empty
+    @Published private(set) var liveDisplayOpacity=0.0
+    @Published var liveHandoff=false
+    private var contentFade=SurfaceContentFade()
     @Published var geometry: NotchGeometry?
     @Published private(set) var fileDrop: FileDropStatus?
     @Published private(set) var recentDrop: RecentFileDrop?
@@ -109,13 +114,38 @@ private enum ShelfSelectionContext: Equatable { case full, recent(UUID) }
         let compactWidth = geometry?.hoverWidth ?? 420
         if magnetic { return FileDropLayout.surfaceSize(geometry) }
         switch state {
-        case .idle: return LiveSurfaceLayout.size(for: liveSurface.presentation.mode, geometry: geometry, shoulderWidth:liveSurface.shoulderWidth)
+        case .idle: return liveSurface.plan.footprint(geometry).size
         case .hover: return CGSize(width: compactWidth, height: top + 102)
         case .miniShelf: return FileDropLayout.surfaceSize(geometry)
         case .overview, .shelf: return CGSize(width: expandedWidth, height: top + 212 + (shelf.error == nil ? 0 : 30))
         case .preview: return CGSize(width: expandedWidth, height: top + 272)
         case .preferences: return CGSize(width: expandedWidth, height: top + 252)
         }
+    }
+    var targetInsets:CGSize {state == .idle && !magnetic ? liveSurface.plan.footprint(geometry).insets : .zero}
+    var paintedBounds:CGRect {LiveSurfaceLayout.paintedRect(in:surfaceSize,insets:surfaceInsets,cameraWidth:geometry?.hasNotch == false ? 0 : geometry?.neckWidth ?? 220)}
+    var workspaceHeaderOpacity:Double {
+        guard liveHandoff,!reduceMotion else{return 1}
+        let camera=geometry?.hasNotch == false ? 0 : (geometry?.neckWidth ?? 220)+24
+        let required:CGFloat=state.isExpanded ? 210 : 70
+        let side=max(0,(surfaceSize.width-camera)/2)
+        let t=Double(min(1,max(0,(side/required-0.75)/0.25)))
+        return t*t*(3-2*t)*(1-liveDisplayOpacity)
+    }
+    func advanceLiveContent(dt:Double) {
+        let wanted=state == .idle && !magnetic ? liveSurface.plan : LiveSurfacePlan.empty
+        if magnetic || draggingOut {
+            contentFade.snap(to:nil)
+            if liveDisplay != .empty {liveDisplay = .empty}
+            if liveDisplayOpacity != 0 {liveDisplayOpacity=0}
+            return
+        }
+        if wanted == liveDisplay,liveDisplayOpacity == (wanted.visualKey == nil ? 0 : 1) {return}
+        if liveDisplayOpacity==1,wanted.isValueUpdate(from:liveDisplay) {contentFade.snap(to:wanted.visualKey)}
+        contentFade.request(wanted.visualKey)
+        _=contentFade.step(dt:dt,ready:wanted.ready(size:surfaceSize,painted:paintedBounds,geometry:geometry),reduced:reduceMotion)
+        if contentFade.key == wanted.visualKey,liveDisplay != wanted {liveDisplay=wanted}
+        if liveDisplayOpacity != contentFade.opacity {liveDisplayOpacity=contentFade.opacity}
     }
     var reduceMotion: Bool { preferences.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     func open(_ destination: NotchState = .overview, byHover: Bool = false, reason: String = "explicit-open") {

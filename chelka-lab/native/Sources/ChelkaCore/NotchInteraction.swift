@@ -12,7 +12,7 @@ public struct NotchPointerRegions: Sendable {
     public let inControls: Bool
     public var retainsHover: Bool { inActivation || inSurface }
 
-    public init(geometry: NotchGeometry, frame: CGRect, pointer: CGPoint) {
+    public init(geometry: NotchGeometry, frame: CGRect, pointer: CGPoint, paintedBounds: CGRect? = nil) {
         activation = geometry.frame(for: geometry.idleSize)
         // macOS can report mouseLocation.y == screen.frame.maxY at the upper
         // screen edge. CGRect.contains excludes maxY; this is still the camera,
@@ -20,8 +20,10 @@ public struct NotchPointerRegions: Sendable {
         inActivation = pointer.x >= activation.minX && pointer.x < activation.maxX &&
             pointer.y >= activation.minY && pointer.y <= activation.maxY
         let local = CGPoint(x: pointer.x - frame.minX, y: frame.maxY - pointer.y)
-        inSurface = frame.contains(pointer) && geometry.outline(for: frame.size).contains(local)
-        inControls = frame.contains(pointer) && geometry.containsInteractivePoint(local, in: frame.size)
+        let painted=paintedBounds ?? CGRect(origin:.zero,size:frame.size)
+        let relative=CGPoint(x:local.x-painted.minX,y:local.y-painted.minY)
+        inSurface = frame.contains(pointer) && painted.contains(local) && geometry.outline(for:painted.size).contains(relative)
+        inControls = inSurface && !geometry.cameraRegion(for:frame.size).contains(local)
     }
 
     public func acceptsMouse(in mode: NotchInteractionMode) -> Bool {

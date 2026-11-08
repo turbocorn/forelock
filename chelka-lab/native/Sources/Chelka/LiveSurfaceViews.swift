@@ -2,28 +2,6 @@ import SwiftUI
 import AppKit
 import ChelkaCore
 
-enum LiveSurfaceMetrics {
-    static func ambientText(_ item:LiveSurfaceItem)->String? {
-        switch item.category {
-        case .files,.battery:return item.title
-        case .devices:return item.title.count>16 ? String(item.title.prefix(15))+"…" : item.title
-        default:return nil
-        }
-    }
-    static func shoulderWidth(_ p:LiveSurfacePresentation)->CGFloat {
-        func width(_ text:String,_ size:CGFloat,_ weight:NSFont.Weight = .regular)->CGFloat {
-            (text as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:size,weight:weight)]).width
-        }
-        if p.mode == .stretch,let e=p.event {
-            let detail=e.count>1 ? "\(e.detail) ×\(e.count)" : e.detail
-            return min(224,max(44,ceil(max(width(e.title,11,.medium)+42,width(detail,10)+24))))
-        }
-        return max(52,[p.left,p.right].compactMap{$0}.map{item in
-            ambientText(item).map{min(164,ceil(width($0,10)+38))} ?? 38
-        }.max() ?? 52)
-    }
-}
-
 /// Same isolated Debug events as the status menu. This also lets native
 /// accessibility tools exercise the installed app without a separate window.
 struct LiveSurfaceDiagnosticActions: ViewModifier {
@@ -42,53 +20,53 @@ struct LiveSurfaceDiagnosticActions: ViewModifier {
     }
 }
 
-struct LiveSurfaceView: View {
-    @ObservedObject var live: LiveSurfaceCoordinator
-    let geometry: NotchGeometry?
-    let size: CGSize
-    private var header: CGFloat { geometry?.headerHeight ?? 38 }
-    var body: some View {
-        let layout=geometry?.headerLayout(for:size)
-        let side=layout?.left.width ?? size.width/2, camera=layout?.camera.width ?? 0
-        VStack(spacing:0) {
-            HStack(spacing:0) {
-                shoulder(left:true).frame(width:side,height:header).clipped()
-                Color.clear.frame(width:camera,height:header).allowsHitTesting(false).accessibilityHidden(true)
-                shoulder(left:false).frame(width:side,height:header).clipped()
+struct LiveSurfaceView:View {
+    @ObservedObject var live:LiveSurfaceCoordinator
+    let plan:LiveSurfacePlan
+    let geometry:NotchGeometry?
+    let size:CGSize
+    private var header:CGFloat {geometry?.hasNotch == false && plan.mode == .ambient ? 25 : geometry?.headerHeight ?? 38}
+    private var camera:CGFloat {geometry?.hasNotch == false ? 0 : geometry?.neckWidth ?? 220}
+    var body:some View {
+        ZStack(alignment:.topLeading) {
+            if plan.mode == .peek {
+                Button {live.dismissCurrent()} label:{Image(systemName:"xmark").font(.system(size:11,weight:.medium)).frame(width:28,height:28)}
+                    .buttonStyle(.plain).accessibilityLabel("Закрыть событие")
+                    .position(x:camera>0 ? size.width/2+camera/2+22 : size.width-24,y:header/2)
+                HStack(alignment:.center,spacing:12) {
+                    VStack(alignment:.leading,spacing:4) {
+                        Text(plan.title).font(.system(size:13,weight:.semibold)).lineLimit(1)
+                        if !plan.detail.isEmpty {Text(plan.detail).font(.system(size:11)).foregroundStyle(Color.chelkaMuted).lineLimit(2).fixedSize(horizontal:false,vertical:true)}
+                    }.frame(maxWidth:.infinity,alignment:.leading)
+                    if let id=plan.eventID,plan.action != nil {
+                        Button {live.act(on:id)} label:{Text("К полке").font(.system(size:11,weight:.semibold)).frame(width:80,height:32)}
+                            .buttonStyle(.plain).background(Color.white.opacity(0.10),in:RoundedRectangle(cornerRadius:9))
+                            .accessibilityLabel("Открыть полку")
+                    }
+                }.frame(width:plan.footprint(geometry).size.width-32,height:plan.footprint(geometry).size.height-header-24)
+                    .position(x:size.width/2,y:header+10+(plan.footprint(geometry).size.height-header-24)/2)
+            } else {
+                let groupStart=(size.width-plan.shoulders.width-plan.shoulders.height)/2
+                if let left=plan.left {block(left,leading:true).position(x:camera>0 ? (size.width-camera)/2-left.width/2 : groupStart+left.width/2,y:header/2)}
+                if let right=plan.right {block(right,leading:false).position(x:camera>0 ? (size.width+camera)/2+right.width/2 : groupStart+plan.shoulders.width+right.width/2,y:header/2)}
             }
-            if live.presentation.mode == .peek,let e=live.presentation.event {
-                VStack(alignment:.leading,spacing:8) {
-                    Text(e.title).font(.system(size:15,weight:.medium)).lineLimit(1)
-                    Text(e.detail).font(.system(size:11)).foregroundStyle(Color.chelkaMuted).lineLimit(2)
-                    if e.action != nil { SurfaceButton("Открыть полку",symbol:"tray") {live.act(on:e.id)} }
-                }.frame(width:max(0,size.width-40),alignment:.leading).padding(.top,10)
-            }
-        }.frame(width:size.width,height:size.height,alignment:.top)
+        }.frame(width:size.width,height:size.height,alignment:.topLeading)
             .accessibilityIdentifier("ForelockLiveSurface")
+            .help(plan.help)
     }
-    @ViewBuilder private func shoulder(left:Bool)->some View {
-        switch live.presentation.mode {
-        case .ambient:
-            if let item=left ? live.presentation.left : live.presentation.right {
-                HStack(spacing:5) {
-                    Image(systemName:item.symbol).font(.system(size:13,weight:.medium))
-                    if let text=LiveSurfaceMetrics.ambientText(item) {Text(text).font(.system(size:10).monospacedDigit()).lineLimit(1)}
-                }.foregroundStyle(Color.chelkaText).help(item.detail)
-                    .accessibilityElement(children:.ignore).accessibilityLabel(item.title+". "+item.detail)
-                    .allowsHitTesting(false)
-            } else { Color.clear.accessibilityHidden(true) }
-        case .stretch:
-            if let e=live.presentation.event {
-                HStack(spacing:6) {
-                    if left {Image(systemName:e.symbol).font(.system(size:11));Text(e.title).font(.system(size:11,weight:.medium))}
-                    else {Text(e.count>1 ? "\(e.detail) ×\(e.count)" : e.detail).font(.system(size:10)).foregroundStyle(Color.chelkaMuted)}
-                }.lineLimit(1).padding(.horizontal,12).help(e.title+". "+e.detail).allowsHitTesting(false)
+    private func block(_ item:LiveCompactBlock,leading:Bool)->some View {
+        HStack(spacing:item.style == .ambient ? 5 : 7) {
+            if let symbol=item.symbol {Image(systemName:symbol).font(.system(size:item.style == .ambient ? 12 : 16,weight:.medium)).frame(width:item.style == .ambient ? 14 : 16)}
+            if !item.title.isEmpty {
+                VStack(alignment:.leading,spacing:1) {
+                    Text(item.title).font(.system(size:item.style == .value ? 13 : item.style == .ambient ? 11 : 11.5,weight:item.style == .event ? .semibold : .medium)).monospacedDigit().lineLimit(1)
+                    if !item.caption.isEmpty {Text(item.caption).font(.system(size:9.5)).foregroundStyle(Color(white:0.66)).lineLimit(1)}
+                }
             }
-        case .peek:
-            if left {Text("Forelock").font(.system(size:13,weight:.semibold)).frame(maxWidth:.infinity,alignment:.leading).padding(.leading,12)}
-            else {Button {live.dismissCurrent()} label:{Image(systemName:"xmark").font(.system(size:11)).frame(width:28,height:28)}.buttonStyle(.plain).accessibilityLabel("Закрыть событие").frame(maxWidth:.infinity,alignment:.trailing).padding(.trailing,8)}
-        case .silent,.workspace:Color.clear.accessibilityHidden(true)
-        }
+        }.padding(.leading,leading ? 10 : 7).padding(.trailing,leading ? 7 : 10)
+            .frame(width:item.width,height:header)
+            .accessibilityElement(children:.ignore).accessibilityLabel(plan.help)
+            .allowsHitTesting(false)
     }
 }
 

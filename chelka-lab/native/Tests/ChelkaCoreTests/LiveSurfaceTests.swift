@@ -146,7 +146,7 @@ final class LiveSurfaceTests: XCTestCase {
             let m=model(),c=NotchWindowController(model:m);defer{c.stop()}
             let g=try XCTUnwrap(m.geometry)
             for mode in [LiveSurfaceMode.ambient,.stretch,.peek] {
-                let size=LiveSurfaceLayout.size(for:mode,geometry:g)
+                let size=LiveSurfaceLayout.footprint(for:mode,geometry:g,shoulders:CGSize(width:56,height:32)).size
                 m.surfaceSize=size;c.applyWindowLayout()
                 XCTAssertEqual(c.panel.frame.maxY,g.anchor.y,accuracy:0.5)
                 XCTAssertEqual(c.panel.frame.midX,g.anchor.x,accuracy:0.5)

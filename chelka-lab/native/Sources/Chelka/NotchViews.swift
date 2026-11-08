@@ -11,9 +11,11 @@ extension Color {
 
 struct NotchSilhouette: Shape {
     let geometry: NotchGeometry?
+    var insets=CGSize.zero
     func path(in rect: CGRect) -> Path {
         guard let geometry else { return Path(rect) }
-        return Path(geometry.outline(for: rect.size))
+        let painted=LiveSurfaceLayout.paintedRect(in:rect.size,insets:insets,cameraWidth:geometry.hasNotch ? geometry.neckWidth : 0)
+        return Path(geometry.outline(for:painted.size)).applying(CGAffineTransform(translationX:painted.minX,y:painted.minY))
     }
 }
 
@@ -25,7 +27,7 @@ struct NotchRootView: View {
     init(model:NotchModel,shelf:ShelfModel,preferences:Preferences) {
         self.model=model;self.shelf=shelf;self.preferences=preferences;self.live=model.liveSurface
     }
-    private var shape: NotchSilhouette { NotchSilhouette(geometry: model.geometry) }
+    private var shape: NotchSilhouette { NotchSilhouette(geometry:model.geometry,insets:model.surfaceInsets) }
     private var visibleSurface: Bool {
         let idle = model.geometry?.idleSize ?? CGSize(width: 220, height: 38)
         return model.state.isOpen || model.magnetic || live.presentation.mode == .ambient || live.presentation.mode == .stretch || live.presentation.mode == .peek || model.surfaceSize.width > idle.width + 0.5 || model.surfaceSize.height > idle.height + 0.5
@@ -39,9 +41,6 @@ struct NotchRootView: View {
         ZStack(alignment: .top) {
             shape.fill(visibleSurface ? Color.black : Color.clear)
             if model.state == .idle && !model.magnetic {
-                if live.presentation.mode != .silent && live.presentation.mode != .workspace {
-                    LiveSurfaceView(live:live,geometry:model.geometry,size:model.surfaceSize)
-                }
                 Color.clear.accessibilityElement()
                     .accessibilityLabel("Forelock, свёрнута")
                     .accessibilityAction(named: Text("Раскрыть Forelock")) { model.open() }
@@ -53,6 +52,7 @@ struct NotchRootView: View {
                     // so the camera exclusion stays fixed during an interrupted spring.
                     NotchHeaderRow(model: model, shelf: shelf)
                         .frame(width: model.surfaceSize.width, height: model.headerHeight)
+                        .opacity(model.workspaceHeaderOpacity).allowsHitTesting(model.workspaceHeaderOpacity>0.85)
                     if model.isMiniShelf {
                         let rect = FileDropLayout.dropRect(in: model.surfaceSize, headerHeight: model.headerHeight)
                         RecentFilesView(model: model, shelf: shelf).frame(width: rect.width, height: rect.height)
@@ -70,6 +70,12 @@ struct NotchRootView: View {
                             .frame(width: model.expandedWidth - 48).opacity(expandedContentOpacity)
                     }
                 }
+            }
+            if model.liveDisplayOpacity>0,!model.magnetic {
+                LiveSurfaceView(live:live,plan:model.liveDisplay,geometry:model.geometry,size:model.surfaceSize)
+                    .opacity(model.liveDisplayOpacity)
+                    .allowsHitTesting(model.state == .idle && live.presentation.mode == .peek && model.liveDisplayOpacity>0.85)
+                    .accessibilityHidden(model.liveDisplayOpacity<0.1)
             }
         }
         .frame(width: model.surfaceSize.width, height: model.surfaceSize.height, alignment: .top)

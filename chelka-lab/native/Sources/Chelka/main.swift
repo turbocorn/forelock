@@ -52,9 +52,9 @@ import ChelkaCore
 #endif
         menu.addItem(.separator())
 #if DEBUG
-        let version = NSMenuItem(title: "Forelock 0.5.4 · Debug", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.5 · Debug", action: nil, keyEquivalent: "")
 #else
-        let version = NSMenuItem(title: "Forelock 0.5.4 · эксперимент", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.5 · эксперимент", action: nil, keyEquivalent: "")
 #endif
         version.isEnabled = false; menu.addItem(version)
         menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))

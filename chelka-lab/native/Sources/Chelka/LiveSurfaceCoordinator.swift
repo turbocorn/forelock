@@ -14,7 +14,7 @@ import ForelockMusic
     private var operationBefore: Set<UUID>?
     private var inventory = 0
     private var deviceIndicators:[LiveSurfaceEvent]=[]
-    private(set) var shoulderWidth:CGFloat=52
+    private(set) var plan=LiveSurfacePlan.empty
     var suppressesDeviceExpansion:Bool {context.workspace || (context.fullscreen && !context.allowFullscreen)}
     private let shelf: ShelfModel
     var performAction: ((LiveSurfaceAction)->Void)?
@@ -108,7 +108,7 @@ import ForelockMusic
             engine.ingest(e,now:now,context:context)
         }
         let next=engine.advance(now:now,context:context,left:left,right:right)
-        if next != presentation {shoulderWidth=LiveSurfaceMetrics.shoulderWidth(next);presentation=next}
+        if next != presentation {plan=LiveSurfacePlan.make(next);presentation=next}
         deadline=engine.nextDeadline(context:context)
     }
 #if DEBUG

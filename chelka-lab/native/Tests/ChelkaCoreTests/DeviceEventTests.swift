@@ -128,11 +128,12 @@ final class DeviceEventTests:XCTestCase {
             var e=LiveSurfaceEngine();e.ingest(p.update(power:power(68,true),audio:audio(),now:now)[0],now:now,context:LiveSurfaceContext())
             let presentation=e.advance(now:now,context:LiveSurfaceContext())
             let g=NotchGeometry(screenFrame:CGRect(x:0,y:0,width:1800,height:1169),visibleFrame:CGRect(x:0,y:0,width:1800,height:1125),safeTop:38,leftArea:CGRect(x:0,y:1131,width:790,height:38),rightArea:CGRect(x:1010,y:1131,width:790,height:38))
-            let shoulder=LiveSurfaceMetrics.shoulderWidth(presentation)
-            let size=LiveSurfaceLayout.size(for:.stretch,geometry:g,shoulderWidth:shoulder)
-            XCTAssertEqual(size.width,244+2*shoulder);XCTAssertNotEqual(size.width,520)
+            let plan=LiveSurfacePlan.make(presentation),footprint=plan.footprint(g),size=footprint.size
+            let painted=LiveSurfaceLayout.paintedRect(in:size,insets:footprint.insets,cameraWidth:g.neckWidth)
+            XCTAssertEqual(painted.width,g.neckWidth+plan.shoulders.width+plan.shoulders.height)
+            XCTAssertLessThan(painted.width,420)
             XCTAssertEqual(size.height,38);XCTAssertEqual(g.frame(for:size).maxY,1169)
-            XCTAssertGreaterThanOrEqual(g.headerLayout(for:size).left.width,shoulder)
+            XCTAssertTrue(plan.ready(size:size,painted:painted,geometry:g))
         }
     }
     func testActualPowerAndCoreAudioReadAndPowerObserverCleanup() async throws {
