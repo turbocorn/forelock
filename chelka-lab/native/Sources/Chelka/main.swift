@@ -1,7 +1,7 @@
 import AppKit
 import ChelkaCore
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem!
     private var windowController: NotchWindowController!
     private var model: NotchModel!
@@ -41,6 +41,7 @@ import ChelkaCore
         menu.addItem(item("Файловая полка", action: #selector(openShelf), key: "f"))
         menu.addItem(.separator())
         menu.addItem(item("Настройки…", action: #selector(openPreferences), key: ","))
+        menu.addItem(item("Виртуальная чёлка", action: #selector(toggleVirtualNotch)))
         menu.addItem(item("Показать локальное хранилище", action: #selector(showStorage)))
 #if DEBUG
         let diagnostics=NSMenuItem(title:"Live Surface · диагностика",action:nil,keyEquivalent:"")
@@ -52,9 +53,9 @@ import ChelkaCore
 #endif
         menu.addItem(.separator())
 #if DEBUG
-        let version = NSMenuItem(title: "Forelock 0.5.6 · Debug", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.7 · Debug", action: nil, keyEquivalent: "")
 #else
-        let version = NSMenuItem(title: "Forelock 0.5.6 · эксперимент", action: nil, keyEquivalent: "")
+        let version = NSMenuItem(title: "Forelock 0.5.7 · эксперимент", action: nil, keyEquivalent: "")
 #endif
         version.isEnabled = false; menu.addItem(version)
         menu.addItem(item("Выйти из Forelock", action: #selector(quit), key: "q"))
@@ -76,6 +77,18 @@ import ChelkaCore
     @objc private func openNotch() { windowController.open() }
     @objc private func openShelf() { windowController.open(.shelf) }
     @objc private func openPreferences() { windowController.open(.preferences) }
+    @objc private func toggleVirtualNotch() { preferences.virtualNotchEnabled.toggle() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(toggleVirtualNotch):
+            menuItem.state = preferences.virtualNotchEnabled ? .on : .off
+            return true
+        case #selector(openNotch), #selector(openShelf), #selector(openPreferences):
+            return windowController.canOpen
+        default:
+            return true
+        }
+    }
     @objc private func showStorage() { NSWorkspace.shared.open(model.shelf.repository.root) }
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

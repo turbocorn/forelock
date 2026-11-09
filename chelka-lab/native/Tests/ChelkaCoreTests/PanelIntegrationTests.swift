@@ -38,8 +38,13 @@ final class PanelIntegrationTests: XCTestCase {
                 XCTAssertEqual(host.bounds.height, size.height, accuracy: 0.5)
                 let header = geometry.headerLayout(for: size)
                 let camera = geometry.cameraRegion(for: size)
-                XCTAssertLessThanOrEqual(header.left.maxX, camera.minX)
-                XCTAssertGreaterThanOrEqual(header.right.minX, camera.maxX)
+                if geometry.hasNotch {
+                    XCTAssertLessThanOrEqual(header.left.maxX, camera.minX)
+                    XCTAssertGreaterThanOrEqual(header.right.minX, camera.maxX)
+                } else {
+                    XCTAssertTrue(camera.isNull)
+                    XCTAssertEqual(header.left.maxX, header.right.minX)
+                }
                 measurements.append(["headerLeft": NSStringFromRect(header.left), "headerRight": NSStringFromRect(header.right),
                                      "cameraExcluded": NSStringFromRect(camera), "state": state, "requestedFrame": NSStringFromRect(requested), "actualFrame": NSStringFromRect(panel.frame),
                                      "hostBounds": NSStringFromRect(host.bounds), "hostSafeAreaDisabled": host.safeAreaRegions.isEmpty,

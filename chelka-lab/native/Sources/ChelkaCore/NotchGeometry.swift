@@ -16,7 +16,7 @@ public struct NotchGeometry: Equatable, Sendable {
     public let menuBarHeight: CGFloat
     public var headerHeight: CGFloat { max(32, neckHeight) }
 
-    public init(screenFrame: CGRect, visibleFrame: CGRect, safeTop: CGFloat, leftArea: CGRect?, rightArea: CGRect?) {
+    public init(screenFrame: CGRect, visibleFrame: CGRect, safeTop: CGFloat, leftArea: CGRect?, rightArea: CGRect?, menuBarFallback: CGFloat = 24) {
         self.screenFrame = screenFrame
         self.menuBarHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
         if safeTop > 0, let leftArea, let rightArea, rightArea.minX > leftArea.maxX {
@@ -26,13 +26,14 @@ public struct NotchGeometry: Equatable, Sendable {
             anchor = CGPoint(x: (leftArea.maxX + rightArea.minX) / 2, y: screenFrame.maxY)
         } else {
             hasNotch = false
-            neckWidth = 112
-            neckHeight = 0
-            anchor = CGPoint(x: screenFrame.midX, y: visibleFrame.maxY)
+            neckWidth = 120
+            let menuHeight = menuBarHeight > 0 ? menuBarHeight : menuBarFallback
+            neckHeight = min(26, max(22, menuHeight))
+            anchor = CGPoint(x: screenFrame.midX, y: screenFrame.maxY)
         }
     }
 
-    public var idleSize: CGSize { CGSize(width: hasNotch ? neckWidth : 132, height: hasNotch ? neckHeight : 25) }
+    public var idleSize: CGSize { CGSize(width: neckWidth, height: neckHeight) }
     public var hoverWidth: CGFloat { min(420, screenFrame.width - 48) }
     public var expandedWidth: CGFloat { min(900, screenFrame.width - 64) }
 

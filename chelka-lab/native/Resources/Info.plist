@@ -8,8 +8,8 @@
 <key>CFBundleIdentifier</key><string>dev.chelka.lab</string>
 <key>CFBundleExecutable</key><string>Forelock</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.5.6</string>
-<key>CFBundleVersion</key><string>56</string>
+<key>CFBundleShortVersionString</key><string>0.5.7</string>
+<key>CFBundleVersion</key><string>57</string>
 <key>NSAppleEventsUsageDescription</key><string>Forelock читает название, исполнителя, альбом, обложку и состояние воспроизведения в Music.app и управляет музыкой по вашим командам.</string>
 <key>NSBluetoothAlwaysUsageDescription</key><string>Forelock проверяет соединение ранее сопряжённых аудиоустройств для достоверных событий подключения. Поиск и подключение устройств не выполняются.</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>

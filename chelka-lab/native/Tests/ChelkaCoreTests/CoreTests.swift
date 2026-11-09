@@ -75,8 +75,10 @@ final class CoreTests: XCTestCase {
         }
         let external = NotchGeometry(screenFrame: CGRect(x: 1800, y: -200, width: 1920, height: 1080), visibleFrame: CGRect(x: 1800, y: -200, width: 1920, height: 1056), safeTop: 0, leftArea: nil, rightArea: nil)
         XCTAssertFalse(external.hasNotch)
-        XCTAssertEqual(external.anchor.y, 856)
+        XCTAssertEqual(external.anchor.y, 880)
         XCTAssertEqual(external.anchor.x, 2760)
+        XCTAssertEqual(external.idleSize, CGSize(width: 120, height: 24))
+        XCTAssertTrue(external.cameraRegion(for: external.idleSize).isNull)
     }
 
     func testSpringInterruptsWithoutJumpingAndConverges() {

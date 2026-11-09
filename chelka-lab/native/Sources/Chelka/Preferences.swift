@@ -7,6 +7,7 @@ import ChelkaCore
     @Published var hoverEnabled: Bool { didSet { defaults.set(hoverEnabled, forKey: "hoverEnabled") } }
     @Published var hoverDelay: Double { didSet { defaults.set(hoverDelay, forKey: "hoverDelay") } }
     @Published var allowFullscreen: Bool { didSet { defaults.set(allowFullscreen, forKey: "allowFullscreen") } }
+    @Published var virtualNotchEnabled: Bool { didSet { defaults.set(virtualNotchEnabled, forKey: "virtualNotchEnabled") } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "reduceMotion") } }
     @Published var experimentalYandexEnabled: Bool { didSet { defaults.set(experimentalYandexEnabled, forKey: "experimentalYandexEnabled") } }
     @Published var liveLeft: LiveSlotChoice { didSet { defaults.set(liveLeft.rawValue, forKey: "liveLeft") } }
@@ -22,6 +23,7 @@ import ChelkaCore
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
         hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.32
         allowFullscreen = defaults.object(forKey: "allowFullscreen") as? Bool ?? false
+        virtualNotchEnabled = defaults.object(forKey: "virtualNotchEnabled") as? Bool ?? true
         reduceMotion = defaults.bool(forKey: "reduceMotion")
         experimentalYandexEnabled = defaults.object(forKey: "experimentalYandexEnabled") as? Bool ?? true
         liveLeft = LiveSlotChoice(rawValue: defaults.string(forKey: "liveLeft") ?? "") ?? .auto

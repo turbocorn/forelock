@@ -25,7 +25,10 @@ struct LiveSurfaceView:View {
     let plan:LiveSurfacePlan
     let geometry:NotchGeometry?
     let size:CGSize
-    private var header:CGFloat {geometry?.hasNotch == false && plan.mode == .ambient ? 25 : geometry?.headerHeight ?? 38}
+    private var header: CGFloat {
+        guard let geometry else { return 38 }
+        return !geometry.hasNotch && plan.mode == .ambient ? geometry.idleSize.height : geometry.headerHeight
+    }
     private var camera:CGFloat {geometry?.hasNotch == false ? 0 : geometry?.neckWidth ?? 220}
     var body:some View {
         ZStack(alignment:.topLeading) {

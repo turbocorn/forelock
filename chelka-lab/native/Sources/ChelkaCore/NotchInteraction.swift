@@ -3,8 +3,8 @@ import CoreGraphics
 public enum NotchInteractionMode: String, Sendable { case idle, hover, expanded }
 public enum NotchPointerAction: Equatable, Sendable { case openHover, closeHover }
 
-/// Activation is always hardware-sized. Retention includes the camera even
-/// though it contains no controls. Neither uses a previous target window size.
+/// Activation is limited to the idle footprint. Retention includes the camera
+/// on a physical notch even though it contains no controls.
 public struct NotchPointerRegions: Sendable {
     public let activation: CGRect
     public let inActivation: Bool
@@ -17,13 +17,18 @@ public struct NotchPointerRegions: Sendable {
         // macOS can report mouseLocation.y == screen.frame.maxY at the upper
         // screen edge. CGRect.contains excludes maxY; this is still the camera,
         // without extending the activation rectangle by a compensation inset.
-        inActivation = pointer.x >= activation.minX && pointer.x < activation.maxX &&
+        let insideIdle = pointer.x >= activation.minX && pointer.x < activation.maxX &&
             pointer.y >= activation.minY && pointer.y <= activation.maxY
         let local = CGPoint(x: pointer.x - frame.minX, y: frame.maxY - pointer.y)
         let painted=paintedBounds ?? CGRect(origin:.zero,size:frame.size)
         let relative=CGPoint(x:local.x-painted.minX,y:local.y-painted.minY)
-        inSurface = frame.contains(pointer) && painted.contains(local) && geometry.outline(for:painted.size).contains(relative)
+        let insideFrame = geometry.hasNotch ? frame.contains(pointer) :
+            pointer.x >= frame.minX && pointer.x < frame.maxX && pointer.y > frame.minY && pointer.y <= frame.maxY
+        inSurface = insideFrame && painted.contains(local) && geometry.outline(for:painted.size).contains(relative)
         inControls = inSurface && !geometry.cameraRegion(for:frame.size).contains(local)
+        let idlePoint = CGPoint(x: pointer.x - activation.minX, y: activation.maxY - pointer.y)
+        inActivation = insideIdle && (geometry.hasNotch ||
+            (inSurface && geometry.outline(for: geometry.idleSize).contains(idlePoint)))
     }
 
     public func acceptsMouse(in mode: NotchInteractionMode) -> Bool {

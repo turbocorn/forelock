@@ -30,7 +30,7 @@ struct NotchRootView: View {
     private var shape: NotchSilhouette { NotchSilhouette(geometry:model.geometry,insets:model.surfaceInsets) }
     private var visibleSurface: Bool {
         let idle = model.geometry?.idleSize ?? CGSize(width: 220, height: 38)
-        return model.state.isOpen || model.magnetic || live.presentation.mode == .ambient || live.presentation.mode == .stretch || live.presentation.mode == .peek || model.surfaceSize.width > idle.width + 0.5 || model.surfaceSize.height > idle.height + 0.5
+        return model.geometry?.hasNotch == false || model.state.isOpen || model.magnetic || live.presentation.mode == .ambient || live.presentation.mode == .stretch || live.presentation.mode == .peek || model.surfaceSize.width > idle.width + 0.5 || model.surfaceSize.height > idle.height + 0.5
     }
     private var expandedContentOpacity: Double {
         guard !model.reduceMotion else { return 1 }
@@ -41,11 +41,15 @@ struct NotchRootView: View {
         ZStack(alignment: .top) {
             shape.fill(visibleSurface ? Color.black : Color.clear)
             if model.state == .idle && !model.magnetic {
-                Color.clear.accessibilityElement()
+                Color.clear
+                    .frame(width: model.geometry?.idleSize.width, height: model.geometry?.idleSize.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.open(reason: "virtual-notch-click") }
+                    .accessibilityElement()
                     .accessibilityLabel("Forelock, свёрнута")
                     .accessibilityAction(named: Text("Раскрыть Forelock")) { model.open() }
                     .accessibilityAction(named: Text("Показать Hover")) { model.open(.hover, reason: "accessibility-hover") }
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(model.geometry?.hasNotch == false && live.presentation.mode != .peek)
             } else {
                 VStack(spacing: 0) {
                     // One persistent header. Its shoulders track presentation width,
@@ -357,6 +361,7 @@ struct PreferencesView: View {
             SurfaceDivider()
             VStack(alignment: .leading, spacing: 10) {
                 Text("Приложение").font(.system(size: 17, weight: .medium))
+                preferenceToggle("Виртуальная чёлка на дисплее без выреза", isOn: $preferences.virtualNotchEnabled)
                 preferenceToggle("Уменьшить движение", isOn: $preferences.reduceMotion)
                 preferenceToggle("Запускать при входе", isOn: Binding(get: { preferences.launchAtLogin }, set: { preferences.setLaunchAtLogin($0) }))
                 VStack(alignment: .leading, spacing: 5) {

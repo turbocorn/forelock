@@ -139,7 +139,11 @@ final class LiveSurfacePolishTests:XCTestCase {
                 c.advanceSurface(dt:1.0/120)
                 let f=c.panel.frame,paint=m.paintedBounds,cam=g.cameraRegion(for:m.surfaceSize)
                 XCTAssertEqual(f.maxY,g.anchor.y,accuracy:0.5);XCTAssertEqual(f.midX,g.anchor.x,accuracy:0.5)
-                XCTAssertLessThanOrEqual(paint.minX,cam.minX+0.1);XCTAssertGreaterThanOrEqual(paint.maxX,cam.maxX-0.1)
+                if g.hasNotch {
+                    XCTAssertLessThanOrEqual(paint.minX,cam.minX+0.1);XCTAssertGreaterThanOrEqual(paint.maxX,cam.maxX-0.1)
+                } else {
+                    XCTAssertEqual(paint, CGRect(origin: .zero, size: m.surfaceSize))
+                }
                 XCTAssertGreaterThanOrEqual(m.liveDisplayOpacity,0);XCTAssertLessThanOrEqual(m.liveDisplayOpacity,1)
             }
             m.preferences.reduceMotion=true;m.liveSurface.diagnose(.peek);c.advanceSurface(dt:1.0/60)
@@ -153,6 +157,8 @@ final class LiveSurfacePolishTests:XCTestCase {
             let f=p.footprint(g)
             XCTAssertEqual(f.insets,.zero);XCTAssertLessThanOrEqual(f.size.width,155)
             XCTAssertGreaterThanOrEqual(f.size.height,32)
+            let compact = LiveSurfaceLayout.footprint(for: .stretch, geometry: g, shoulders: CGSize(width: 75, height: 0))
+            XCTAssertGreaterThan(compact.size.width - g.idleSize.width, compact.size.height - g.idleSize.height)
             XCTAssertTrue(p.ready(size:f.size,painted:CGRect(origin:.zero,size:f.size),geometry:g))
         }
     }

@@ -1,6 +1,6 @@
 # Forelock
 
-Native macOS notch interface, SwiftUI + AppKit. **0.5.5 — Live Surface UX & Motion**, developed on `feature/live-surface-polish` from accepted `feature/devices-live-events` (`1bb43b0`). The 0.4.1 MediaRemote providers are retained. The accepted 0.3.2 baseline is preserved on `main` and tagged `v0.3.2-stable`.
+Native macOS notch interface, SwiftUI + AppKit. **0.5.7 — Virtual Notch**, developed on `feature/virtual-notch` from `feature/accessory-battery` (`8829bda`). The 0.4.1 MediaRemote providers are retained. The accepted 0.3.2 baseline is preserved on `main` and tagged `v0.3.2-stable`.
 
 The existing project remains in `chelka-lab/` to preserve its working paths. There is one Git repository, at this directory. The React motion prototype is archived reference material; the native application lives in `chelka-lab/native/`.
 
@@ -27,7 +27,7 @@ Apple Music uses public Apple Events addressed to an already running Music.app; 
 - [Native app, geometry and file shelf](chelka-lab/README.md)
 - [Chrome extension installation](docs/CHROME-INSTALL.md)
 - [Provider architecture and limitations](docs/MUSIC-PROVIDERS.md)
-- [Actual 0.5.5 verification matrix](chelka-lab/native/ACCEPTANCE.md)
+- [Actual 0.5.5 verification matrix](chelka-lab/native/ACCEPTANCE-0.5.5.md)
 - [Yandex Desktop experiment and rollback](docs/YANDEX-DESKTOP-EXPERIMENT.md)
 - [Preserved 0.4.0 verification](chelka-lab/native/ACCEPTANCE-0.4.0.md)
 
@@ -41,8 +41,10 @@ Full and mini Shelf now support Command-click selection, scoped Command-A, Escap
 
 Live Surface is an independent presentation layer: Silent / Ambient / Stretch / Peek / Workspace. Selected real playing music supplies a static camera-safe Ambient indicator. Workspace, Mini Shelf and native drag have unconditional priority; file completion is already shown by Mini and is not duplicated. Fullscreen automatic expansion is off by default. Slots are configurable without inventing unconnected device data.
 
-The installed 0.5.5 app is Release. IOKit power notifications and Core Audio/IOBluetooth listeners supply real events; no diagnostic event is used for device acceptance. Debug builds still retain the isolated 0.5.3 diagnostics for development. Release excludes them. Battery and current audio output can be pinned in the existing slot settings; normal percentage updates do not expand the surface. AirPods/case battery percentages remain unavailable and disabled.
+The 0.5.5 app was verified in Release. IOKit power notifications and Core Audio/IOBluetooth listeners supply real events; no diagnostic event is used for device acceptance. Debug builds still retain the isolated 0.5.3 diagnostics for development. Release excludes them. Battery and current audio output can be pinned in the existing slot settings; normal percentage updates do not expand the surface. AirPods/case battery percentages remain unavailable and disabled.
 
 0.5.5 measures the two painted shoulders independently while retaining the camera-centred panel anchor. A single Ambient indicator adds only one visible shoulder. Stretch keeps the physical notch height; Peek is content-sized with one action. Existing event arbitration and inputs are unchanged. Captures and manual/automatic evidence are separated in the current acceptance report; final visual acceptance belongs to the user.
 
-Accessory battery 0.5.6 is being validated on `feature/accessory-battery` from `aab4517`; 0.5.5 remains the accepted baseline. AirPods L/R and Magic Mouse have real evidence, but the final installed candidate is awaiting a Bluetooth authorization/readiness check. See [research and limitations](docs/ACCESSORY-BATTERY.md) and the [current verification report](chelka-lab/native/ACCEPTANCE.md). It is not declared accepted.
+Accessory battery 0.5.6 is being validated on `feature/accessory-battery` from `aab4517`; 0.5.5 remains the accepted baseline. AirPods L/R and Magic Mouse have real evidence, but the 0.5.6 report records a pending Bluetooth authorization/readiness check. See [research and limitations](docs/ACCESSORY-BATTERY.md) and the [0.5.6 verification report](chelka-lab/native/ACCEPTANCE-0.5.6.md). It is not declared accepted.
+
+Forelock 0.5.7 Virtual Notch runs on the active built-in display or the primary available external display. The Virtual Notch toggle is available in Settings and the status menu. [Verification and rollback](chelka-lab/native/ACCEPTANCE.md).

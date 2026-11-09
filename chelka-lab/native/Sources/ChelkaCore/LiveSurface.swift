@@ -195,7 +195,10 @@ public enum LiveSurfaceLayout {
             let left=min(max(0,shoulders.width),max(0,(limit-camera)/2))
             let right=min(max(0,shoulders.height),max(0,(limit-camera)/2))
             let extent=max(left,right)
-            let size=CGSize(width:max(idle.width,camera>0 ? camera+2*extent : left+right),height:camera==0 && mode == .stretch ? max(idle.height,geometry?.headerHeight ?? 32) : idle.height)
+            let virtualStretch = camera == 0 && mode == .stretch
+            let minimumWidth = virtualStretch ? min(limit, idle.width + 24) : idle.width
+            let size = CGSize(width: max(minimumWidth, camera > 0 ? camera + 2 * extent : left + right),
+                              height: virtualStretch ? geometry?.headerHeight ?? 32 : idle.height)
             return LiveSurfaceFootprint(size:size,insets:camera>0 ? CGSize(width:extent-left,height:extent-right) : .zero)
         }
     }

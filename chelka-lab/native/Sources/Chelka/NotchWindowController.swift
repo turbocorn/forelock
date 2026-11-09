@@ -21,6 +21,8 @@ final class NotchPanel: NSPanel {
     private var localEvents: Any?
     private var observers: [NSObjectProtocol] = []
     private var spaceObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+    private var placementPreference: AnyCancellable?
     private var spring = SurfaceSpring(CGSize(width: 236, height: 46))
     private var insetSpring=SurfaceSpring(.zero)
     private var lastPaintedInsets=CGSize.zero
@@ -35,6 +37,14 @@ final class NotchPanel: NSPanel {
     private var lastPointerZone: String?
     private var lastFullscreenCheck = 0.0
     private var geometry: NotchGeometry?
+    private var displayID: CGDirectDisplayID?
+    private var pendingReposition = false
+    private var displayLostDuringDrag = false
+
+    private var dragInProgress: Bool {
+        model.draggingOut || incomingDragSequence != nil || dragProbe.isArmed
+    }
+    var canOpen: Bool { geometry != nil && !displayLostDuringDrag }
 
     init(model: NotchModel) {
         self.model = model
@@ -70,7 +80,8 @@ final class NotchPanel: NSPanel {
         }
         container.acceptsDrag = { [weak self] in
             guard let self else { return false }
-            return !self.model.draggingOut && !self.model.isInteracting && !self.model.shelf.loading && !self.dragProbe.isRejected
+            return self.geometry != nil && !self.displayLostDuringDrag && !self.model.draggingOut &&
+                !self.model.isInteracting && !self.model.shelf.loading && !self.dragProbe.isRejected
         }
         container.dragEntered = { [weak self] sequence, count in self?.nativeFileDragEntered(sequence: sequence, count: count) }
         container.dragExited = { [weak self] sequence in
@@ -89,7 +100,8 @@ final class NotchPanel: NSPanel {
         }
         panel.contentView = container
         model.requestKey = { [weak self] in
-            self?.panel.makeKey()
+            guard let self, self.panel.isVisible else { return }
+            self.panel.makeKey()
             DispatchQueue.main.async { [weak self] in self?.focusShelf() }
         }
         model.requestShelfFocus = { [weak self] in self?.focusShelf() }
@@ -101,11 +113,10 @@ final class NotchPanel: NSPanel {
             self.pointerPolicy.transitioned(to: next.interactionMode)
             self.syncLiveSurface()
             if next == .idle { self.panel.resignKey() }
-            else { self.panel.orderFrontRegardless() }
+            else { self.showPanelIfPlaced() }
             self.updateMouseRouting(at: NSEvent.mouseLocation)
         }
         reposition()
-        panel.orderFrontRegardless()
         installObservers()
         record("controller-start")
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
@@ -114,8 +125,12 @@ final class NotchPanel: NSPanel {
     }
 
     func open(_ state: NotchState = .overview) {
+        guard canOpen else { return }
         model.open(state, reason: "menu-open")
-        panel.orderFrontRegardless()
+        showPanelIfPlaced()
+    }
+    private func showPanelIfPlaced() {
+        if geometry != nil && !displayLostDuringDrag { panel.orderFrontRegardless() }
     }
     func collapse(reason: String = "explicit-close") {
         if model.state == .idle && !model.magnetic && (model.liveSurface.presentation.mode == .peek || model.liveSurface.presentation.mode == .stretch) {
@@ -137,30 +152,78 @@ final class NotchPanel: NSPanel {
         if let localEvents { NSEvent.removeMonitor(localEvents) }
         observers.forEach(NotificationCenter.default.removeObserver)
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        placementPreference?.cancel()
         panel.orderOut(nil)
     }
     private func reposition() {
-        let screens = NSScreen.screens
-        let builtin = screens.first { screen in
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
-            return CGDisplayIsBuiltin(number.uint32Value) != 0
+        // NSScreen.screens is ordered with the menu-bar display first.
+        let active = NSScreen.screens.compactMap { screen -> (screen: NSScreen, id: CGDirectDisplayID)? in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+                  CGDisplayIsActive(number.uint32Value) != 0 else { return nil }
+            return (screen, number.uint32Value)
         }
-        guard let screen = builtin ?? NSScreen.main ?? screens.first else { panel.orderOut(nil); return }
-        let next = NotchGeometry(screenFrame: screen.frame, visibleFrame: screen.visibleFrame, safeTop: screen.safeAreaInsets.top,
-                                 leftArea: screen.auxiliaryTopLeftArea, rightArea: screen.auxiliaryTopRightArea)
+        let selected = active.first { CGDisplayIsBuiltin($0.id) != 0 } ?? active.first
+        let measured = selected.map { selection in
+            let screen = selection.screen
+            return NotchGeometry(screenFrame: screen.frame, visibleFrame: screen.visibleFrame,
+                                 safeTop: screen.safeAreaInsets.top, leftArea: screen.auxiliaryTopLeftArea,
+                                 rightArea: screen.auxiliaryTopRightArea, menuBarFallback: NSStatusBar.system.thickness)
+        }
+        let next = measured.flatMap { $0.hasNotch || model.preferences.virtualNotchEnabled ? $0 : nil }
+        let nextID = next == nil ? nil : selected?.id
+        let placementChanged = displayID != nextID || geometry != next
+        if (placementChanged || pendingReposition) && dragInProgress {
+            let current = active.first { $0.id == displayID }
+            let currentFrameIsStable = current?.screen.frame == geometry?.screenFrame && current != nil
+            if currentFrameIsStable || model.draggingOut {
+                pendingReposition = true
+                if current == nil {
+                    // Let AppKit finish the source session before changing its host.
+                    displayLostDuringDrag = true
+                    panel.ignoresMouseEvents = true
+                    panel.orderOut(nil)
+                }
+                return
+            }
+            cancelIncomingDrag()
+        }
+        pendingReposition = false
+        displayLostDuringDrag = false
+        displayID = nextID
         geometry = next
-        model.geometry = next
-        if !model.state.isOpen && !model.magnetic && model.liveSurface.presentation.mode == .silent { spring = SurfaceSpring(next.idleSize); insetSpring=SurfaceSpring(.zero); model.surfaceInsets = .zero; model.surfaceSize = next.idleSize }
+        if model.geometry != next { model.geometry = next }
+        guard next != nil else {
+            panel.ignoresMouseEvents = true
+            panel.orderOut(nil)
+            return
+        }
+        if placementChanged {
+            // The current state gets its new screen's dimensions before the
+            // window moves. Subsequent state changes use the same spring.
+            model.surfaceSize = model.targetSize
+            model.surfaceInsets = model.targetInsets
+            spring = SurfaceSpring(model.surfaceSize)
+            insetSpring = SurfaceSpring(model.surfaceInsets)
+            model.fullscreen = nextID.map { frontmostIsFullscreen(on: $0) } ?? false
+        }
         applyWindowLayout()
         pointerPolicy.resetTimers()
         updateMouseRouting(at: NSEvent.mouseLocation)
+        showPanelIfPlaced()
         record("screen-reposition")
     }
     private func installObservers() {
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.reposition() } })
         observers.append(NotificationCenter.default.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.model.objectWillChange.send() })
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reposition(); self?.panel.orderFrontRegardless() }
+            MainActor.assumeIsolated { self?.reposition() }
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reposition() }
+        }
+        placementPreference = model.preferences.$virtualNotchEnabled.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.reposition() }
         }
         globalMouse = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             guard let self else { return }
@@ -224,8 +287,11 @@ final class NotchPanel: NSPanel {
         return CGRect(x: panel.frame.midX - size.width / 2, y: panel.frame.maxY - size.height, width: size.width, height: size.height)
     }
     private func updateMouseRouting(at point: CGPoint) {
-        let capture = (dragProbe.isArmed || incomingDragSequence != nil) && NSEvent.pressedMouseButtons & 1 != 0
+        guard let geometry, !displayLostDuringDrag else { panel.ignoresMouseEvents = true; return }
         let zone = regions(at: point)
+        let menuBottom = geometry.anchor.y - max(geometry.menuBarHeight, geometry.idleSize.height)
+        let capture = (dragProbe.isArmed || incomingDragSequence != nil) && NSEvent.pressedMouseButtons & 1 != 0 &&
+            (geometry.hasNotch || (panel.frame.contains(point) && (point.y <= menuBottom || zone?.inSurface == true)))
         let peek = model.state == .idle && !model.magnetic && model.liveSurface.presentation.mode == .peek && zone?.inControls == true
         panel.ignoresMouseEvents = !(capture || peek || (model.magnetic && zone?.inControls == true) || (zone?.acceptsMouse(in: model.state.interactionMode) ?? false))
     }
@@ -276,6 +342,7 @@ final class NotchPanel: NSPanel {
         syncLiveSurface()
     }
     func applyWindowLayout() {
+        guard !(pendingReposition && model.draggingOut) else { return }
         guard let geometry, let container = panel.contentView as? DropHostingView else { return }
         let capturing = dragProbe.isArmed || incomingDragSequence != nil
         let visual = geometry.frame(for: model.surfaceSize)
@@ -303,7 +370,11 @@ final class NotchPanel: NSPanel {
         ])
     }
     private func tick() {
-        guard let geometry else { return }
+        if pendingReposition && !dragInProgress { reposition() }
+        guard let displayID, !displayLostDuringDrag else {
+            model.liveSurface.tick()
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         let dt = now - lastTick; lastTick = now
         let pointer = NSEvent.mouseLocation
@@ -316,7 +387,7 @@ final class NotchPanel: NSPanel {
         wasMagnetic = model.magnetic
         if now - lastFullscreenCheck > 0.7 {
             lastFullscreenCheck = now
-            model.fullscreen = frontmostIsFullscreen(geometry.screenFrame)
+            model.fullscreen = frontmostIsFullscreen(on: displayID)
             if model.fullscreen && !model.preferences.allowFullscreen && model.state == .hover && !model.magnetic { collapse(reason: "fullscreen-hover") }
         }
         syncLiveSurface()
@@ -361,7 +432,8 @@ final class NotchPanel: NSPanel {
                                             (model.state == .idle && model.fullscreen && !model.preferences.allowFullscreen) ||
                                             (model.state == .idle && model.liveSurface.presentation.mode == .peek),
                                           hoverEnabled: model.preferences.hoverEnabled, hoverDelay: model.preferences.hoverDelay)
-        let name = zone.inActivation ? "physical-notch" : zone.inSurface && model.state != .idle ? "surface" : "outside"
+        let name = zone.inActivation ? (geometry?.hasNotch == true ? "physical-notch" : "virtual-notch") :
+            zone.inSurface && model.state != .idle ? "surface" : "outside"
         if name != lastPointerZone || previousTimers != [pointerPolicy.hoverSince, pointerPolicy.outsideSince] {
             lastPointerZone = name
             record("pointer-" + name, pointer: pointer)
@@ -372,13 +444,14 @@ final class NotchPanel: NSPanel {
         case nil: break
         }
     }
-    private func frontmostIsFullscreen(_ frame: CGRect) -> Bool {
+    private func frontmostIsFullscreen(on display: CGDirectDisplayID) -> Bool {
         guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
         // Bounds and owner PID are public window metadata; no screen recording permission or image capture.
+        let displayBounds = CGDisplayBounds(display).insetBy(dx: 2, dy: 2)
         for window in windows where (window[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier && (window[kCGWindowLayer as String] as? Int) == 0 {
             guard let bounds = window[kCGWindowBounds as String] as? [String: Any], let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { continue }
-            return rect.width >= frame.width - 2 && rect.height >= frame.height - 2
+            if rect.contains(displayBounds) { return true }
         }
         return false
     }

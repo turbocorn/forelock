@@ -32,6 +32,24 @@ final class InteractionTests: XCTestCase {
         }
     }
 
+    func testVirtualActivationFollowsPaintAndLeavesNeighboringMenuBarInteractive() {
+        let screen = CGRect(x: -2560, y: 240, width: 2560, height: 1440)
+        let geometry = NotchGeometry(screenFrame: screen, visibleFrame: CGRect(x: -2560, y: 240, width: 2560, height: 1415),
+                                     safeTop: 0, leftArea: nil, rightArea: nil)
+        let idle = geometry.frame(for: geometry.idleSize)
+        let center = NotchPointerRegions(geometry: geometry, frame: idle, pointer: CGPoint(x: idle.midX, y: idle.maxY))
+        XCTAssertTrue(center.inControls)
+        XCTAssertTrue(center.acceptsMouse(in: .idle))
+
+        let corner = NotchPointerRegions(geometry: geometry, frame: idle, pointer: CGPoint(x: idle.minX + 1, y: idle.minY + 1))
+        XCTAssertFalse(corner.acceptsMouse(in: .idle))
+        let closingFrame = geometry.frame(for: CGSize(width: 420, height: 140))
+        for point in [CGPoint(x: idle.maxX + 1, y: idle.maxY - 8), CGPoint(x: idle.midX, y: idle.minY - 24)] {
+            let region = NotchPointerRegions(geometry: geometry, frame: closingFrame, pointer: point)
+            XCTAssertFalse(region.acceptsMouse(in: .idle))
+        }
+    }
+
     func testExitDeadlineIsSixHundredMillisecondsAndReturnCancelsIt() {
         var policy = NotchPointerPolicy()
         func sample(_ now: Double, _ inside: Bool) -> NotchPointerAction? {
